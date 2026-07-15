@@ -4,15 +4,45 @@ import { toast, escapeHtml, renderError, confirmAction } from '../ui.js';
 
 export async function renderRounds(container) {
     const session = getSession();
-    let data;
+    const canEdit = session.role !== 'viewer';
+    let stopped = false;
+    let editing = false;
+    let loading = false;
+    let snapshot = '';
 
-    try {
-        data = await rounds.list(session.id);
-    } catch (e) {
-        renderError(container, e.message, () => renderRounds(container));
-        return;
-    }
+    const load = async (showError = true, force = false) => {
+        if (stopped || loading || (editing && !force)) return;
+        loading = true;
+        try {
+            const data = await rounds.list(session.id, !showError);
+            const nextSnapshot = JSON.stringify(data);
+            if (force || nextSnapshot !== snapshot) {
+                snapshot = nextSnapshot;
+                renderRoundsContent(container, data, session, canEdit, load, (value) => {
+                    editing = value;
+                });
+            }
+        } catch (e) {
+            if (showError && !stopped) {
+                renderError(container, e.message, () => load(true, true));
+            }
+        } finally {
+            loading = false;
+        }
+    };
 
+    await load();
+    const timer = window.setInterval(() => {
+        if (document.visibilityState === 'visible') load(false);
+    }, 4000);
+
+    return () => {
+        stopped = true;
+        window.clearInterval(timer);
+    };
+}
+
+function renderRoundsContent(container, data, session, canEdit, reload, setEditing) {
     const roundsList = data.rounds || [];
     const schedule = data.schedule || {};
     const lastRound = roundsList[roundsList.length - 1];
@@ -29,11 +59,19 @@ export async function renderRounds(container) {
                 <span class="eyebrow">Расписание</span>
                 <h1>Раунды</h1>
             </div>
-            ${lastRound ? `<span class="status-pill">${rotationDone ? 'Завершено' : `Раунд ${lastRound.round_number}`}</span>` : ''}
+            ${
+                session.role === 'viewer'
+                    ? '<span class="live-pill"><i></i> Просмотр</span>'
+                    : lastRound
+                      ? `<span class="status-pill">${rotationDone ? 'Завершено' : `Раунд ${lastRound.round_number}`}</span>`
+                      : ''
+            }
         </header>
         ${renderScheduleSummary(schedule)}
         ${
-            rotationDone
+            !canEdit
+                ? ''
+                : rotationDone
                 ? '<div class="success-box">Полная ротация завершена</div>'
                 : `<button class="btn btn-primary" id="btn-add-round" ${canAdvance ? '' : 'disabled'}>
                     ${roundsList.length ? 'Следующий раунд →' : 'Начать полную ротацию'}
@@ -46,12 +84,16 @@ export async function renderRounds(container) {
     if (!roundsList.length) {
         listEl.innerHTML = schedule.minimum_players_required
             ? `<div class="empty">Добавьте минимум ${schedule.minimum_players_required} игроков для расчёта расписания</div>`
-            : '<div class="empty">Расписание рассчитано и готово к запуску</div>';
+            : canEdit
+              ? '<div class="empty">Расписание рассчитано и готово к запуску</div>'
+              : '<div class="empty">Ожидаем запуска турнира администратором</div>';
     } else {
         listEl.innerHTML = roundsList
-            .map((round, index) => renderRound(round, index === roundsList.length - 1))
+            .map((round, index) =>
+                renderRound(round, index === roundsList.length - 1, canEdit)
+            )
             .join('');
-        bindRoundEvents(listEl);
+        bindRoundEvents(listEl, canEdit, reload, setEditing);
     }
 
     container.querySelector('#btn-add-round')?.addEventListener('click', async (event) => {
@@ -60,7 +102,7 @@ export async function renderRounds(container) {
         try {
             await rounds.create(session.id);
             toast(roundsList.length ? 'Следующий раунд открыт' : 'Расписание создано');
-            renderRounds(container);
+            await reload(true, true);
         } catch (e) {
             button.disabled = false;
             toast(e.message, true);
@@ -92,7 +134,7 @@ function renderScheduleSummary(schedule) {
     `;
 }
 
-function renderRound(round, expanded) {
+function renderRound(round, expanded, canEdit) {
     const bench = round.bench?.length
         ? `<div class="bench-note">Пропускают раунд: ${round.bench
               .map((player) => escapeHtml(player.name))
@@ -107,25 +149,28 @@ function renderRound(round, expanded) {
             </button>
             <div class="round-body ${expanded ? '' : 'hidden'}" id="round-body-${round.id}">
                 ${bench}
-                ${(round.matches || []).map(renderMatch).join('')}
+                ${(round.matches || []).map((match) => renderMatch(match, canEdit)).join('')}
             </div>
         </div>`;
 }
 
-function renderMatch(match) {
+function renderMatch(match, canEdit) {
     const team1 = match.teams[1].map((player) => escapeHtml(player.name)).join(' + ');
     const team2 = match.teams[2].map((player) => escapeHtml(player.name)).join(' + ');
 
     return `
         <div class="match-card ${match.is_finished ? 'match-done' : ''}" data-match="${match.id}">
             <div class="court"><span>Корт ${match.court_number}</span>${match.is_finished ? '<span class="match-status">Завершён</span>' : '<span class="match-status active">Идёт</span>'}</div>
-            <div class="team blue"><span class="team-badge">A</span><span>${team1}</span></div>
-            <div class="vs"><span>VS</span></div>
-            <div class="team red"><span class="team-badge">B</span><span>${team2}</span></div>
-            <div class="score-display ${match.is_finished ? '' : 'hidden'}">
-                <strong>${match.score_team1 ?? ''}</strong><span>:</span><strong>${match.score_team2 ?? ''}</strong>
+            <div class="match-line">
+                <div class="team blue"><span class="team-badge">A</span><span>${team1}</span></div>
+                <div class="score-display">
+                    <strong>${match.is_finished ? match.score_team1 : '—'}</strong><span>:</span><strong>${match.is_finished ? match.score_team2 : '—'}</strong>
+                </div>
+                <div class="team red"><span>${team2}</span><span class="team-badge">B</span></div>
             </div>
-            <div class="score-editor ${match.is_finished ? 'hidden' : ''}">
+            ${
+                canEdit
+                    ? `<div class="score-editor ${match.is_finished ? 'hidden' : ''}">
                 <div class="score-row">
                     <input type="number" inputmode="numeric" class="score-1" value="${match.score_team1 ?? ''}" min="0" step="1" aria-label="Счёт синей команды">
                     <span>:</span>
@@ -135,13 +180,16 @@ function renderMatch(match) {
             </div>
             ${
                 match.is_finished
-                    ? '<button class="btn btn-secondary btn-edit-score">✏️ Редактировать счёт</button>'
+                    ? '<button class="btn btn-secondary btn-edit-score">Изменить счёт</button>'
+                    : ''
+            }
+                    `
                     : ''
             }
         </div>`;
 }
 
-function bindRoundEvents(container) {
+function bindRoundEvents(container, canEdit, reload, setEditing) {
     container.querySelectorAll('[data-toggle]').forEach((header) => {
         header.addEventListener('click', () => {
             const body = container.querySelector(`#round-body-${header.dataset.toggle}`);
@@ -150,11 +198,22 @@ function bindRoundEvents(container) {
         });
     });
 
+    if (!canEdit) return;
+
     container.querySelectorAll('[data-match]').forEach((card) => {
         card.querySelector('.btn-edit-score')?.addEventListener('click', () => {
-            card.querySelector('.score-display')?.classList.add('hidden');
             card.querySelector('.score-editor')?.classList.remove('hidden');
             card.querySelector('.btn-edit-score')?.classList.add('hidden');
+            setEditing(true);
+            card.querySelector('.score-1')?.focus();
+        });
+
+        const editor = card.querySelector('.score-editor');
+        editor?.addEventListener('focusin', () => setEditing(true));
+        editor?.addEventListener('focusout', () => {
+            window.setTimeout(() => {
+                if (!editor.contains(document.activeElement)) setEditing(false);
+            }, 0);
         });
 
         card.querySelector('.btn-save-score')?.addEventListener('click', async () => {
@@ -169,7 +228,8 @@ function bindRoundEvents(container) {
                 await saveScoreWithConfirmation(card.dataset.match, score1, score2);
                 toast('Счёт сохранён');
                 window.dispatchEvent(new CustomEvent('rating-updated'));
-                renderRounds(document.getElementById('screen'));
+                setEditing(false);
+                await reload(true, true);
             } catch (e) {
                 toast(e.message, true);
             }

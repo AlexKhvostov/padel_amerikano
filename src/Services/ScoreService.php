@@ -10,7 +10,7 @@ final class ScoreService
     public static function save(int $matchId, array $input): array
     {
         $match = self::getMatch($matchId);
-        CompanyService::assertAccess($match['company_id']);
+        CompanyService::assertAccess($match['company_id'], true);
 
         try {
             $validated = ScoreValidator::validate(

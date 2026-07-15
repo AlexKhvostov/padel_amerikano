@@ -34,9 +34,11 @@
 | Метод | Endpoint |
 |-------|----------|
 | GET | `/api/health` |
+| GET | `/api/tournaments?date=YYYY-MM-DD` |
 | GET | `/api/companies/search?q=` |
 | POST | `/api/companies` |
 | POST | `/api/companies/login` |
+| GET | `/api/viewer/{view_token}` |
 | GET | `/api/companies/{id}/players` |
 | POST | `/api/companies/{id}/players` |
 | PUT | `/api/players/{id}` |
@@ -48,7 +50,8 @@
 | PUT | `/api/companies/{id}/settings` |
 | DELETE | `/api/companies/{id}/reset` |
 
-Авторизация: заголовок `Authorization: Bearer <token>`.
+Авторизация: заголовок `Authorization: Bearer <token>`. Административный
+токен разрешает изменения, токен зрителя — только GET-запросы просмотра.
 
 ## Тесты
 

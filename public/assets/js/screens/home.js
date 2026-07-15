@@ -1,6 +1,7 @@
 import { companies } from '../api.js';
 import { setSession } from '../storage.js';
 import { toast, escapeHtml } from '../ui.js';
+import { shareViewerInvite } from '../invite.js';
 
 export function renderHome(container, navigate) {
     let selectedCompany = null;
@@ -50,6 +51,9 @@ export function renderHome(container, navigate) {
                     <button class="btn btn-primary" id="btn-login">Войти</button>
                 </div>
             </div>
+            <button class="browse-games" id="btn-browse-games">
+                <span>Посмотреть все игры</span><b aria-hidden="true">→</b>
+            </button>
         </section>
     `;
 
@@ -57,6 +61,29 @@ export function renderHome(container, navigate) {
     const searchName = container.querySelector('#search-name');
     const searchResults = container.querySelector('#search-results');
     const loginBlock = container.querySelector('#login-block');
+    container.querySelector('#btn-browse-games').addEventListener('click', () => navigate('games'));
+
+    const selectCompany = (company) => {
+        selectedCompany = { id: company.id, name: company.name };
+        loginBlock.classList.remove('hidden');
+        searchResults.innerHTML = `<li><strong>${escapeHtml(selectedCompany.name)}</strong></li>`;
+        container.querySelector('#login-password').focus();
+    };
+
+    const searchCompanies = async (query, selectExact = false) => {
+        const { companies: list } = await companies.search(query);
+        if (selectExact && list.length) {
+            const exact = list.find((item) => item.name.toLowerCase() === query.toLowerCase()) || list[0];
+            selectCompany(exact);
+            return;
+        }
+        searchResults.innerHTML = list
+            .map(
+                (company) =>
+                    `<li data-id="${company.id}" data-name="${escapeHtml(company.name)}">${escapeHtml(company.name)}</li>`
+            )
+            .join('');
+    };
 
     container.querySelectorAll('[data-auth-tab]').forEach((tab) => {
         tab.addEventListener('click', () => {
@@ -91,13 +118,7 @@ export function renderHome(container, navigate) {
                 return;
             }
             try {
-                const { companies: list } = await companies.search(q);
-                searchResults.innerHTML = list
-                    .map(
-                        (c) =>
-                            `<li data-id="${c.id}" data-name="${escapeHtml(c.name)}">${escapeHtml(c.name)}</li>`
-                    )
-                    .join('');
+                await searchCompanies(q);
             } catch (e) {
                 toast(e.message, true);
             }
@@ -107,9 +128,7 @@ export function renderHome(container, navigate) {
     searchResults.addEventListener('click', (e) => {
         const li = e.target.closest('li');
         if (!li) return;
-        selectedCompany = { id: li.dataset.id, name: li.dataset.name };
-        loginBlock.classList.remove('hidden');
-        searchResults.innerHTML = `<li><strong>${escapeHtml(selectedCompany.name)}</strong></li>`;
+        selectCompany({ id: li.dataset.id, name: li.dataset.name });
     });
 
     container.querySelector('#btn-login').addEventListener('click', async () => {
@@ -125,6 +144,28 @@ export function renderHome(container, navigate) {
             toast(e.message, true);
         }
     });
+
+    const params = new URLSearchParams(window.location.search);
+    const shortLink = window.location.pathname.match(/\/v\/([A-Za-z0-9_-]{12})\/?$/);
+    const viewKey = shortLink?.[1] || params.get('view');
+    if (viewKey) {
+        companies
+            .view(viewKey)
+            .then((session) => {
+                setSession(session);
+                window.history.replaceState({}, '', '/');
+                navigate('rounds');
+            })
+            .catch((error) => toast(error.message, true));
+        return;
+    }
+
+    const invitedCompany = params.get('company');
+    if (invitedCompany) {
+        container.querySelector('[data-auth-tab="login"]').click();
+        searchName.value = invitedCompany;
+        searchCompanies(invitedCompany, true).catch((error) => toast(error.message, true));
+    }
 }
 
 function showCredentials(container, data, navigate) {
@@ -132,29 +173,40 @@ function showCredentials(container, data, navigate) {
         <section class="auth-shell">
             <div class="brand compact">
                 <div class="brand-mark" aria-hidden="true">A</div>
-                <div><h1>Компания создана</h1><p>Сохраните код доступа</p></div>
+                <div><h1>Компания создана</h1><p>Сохраните код администратора</p></div>
             </div>
             <div class="credentials card">
                 <span class="eyebrow">Компания</span>
                 <div class="company-name">${escapeHtml(data.name)}</div>
-                <span class="eyebrow">Код доступа</span>
+                <span class="eyebrow">Код администратора</span>
                 <div class="password">${escapeHtml(data.password)}</div>
             </div>
+            <div class="credentials-warning">
+                Обязательно сохраните код. Без него нельзя управлять компанией или восстановить доступ.
+            </div>
             <div class="button-stack">
-            <button class="btn btn-secondary" id="btn-share">Поделиться</button>
-            <button class="btn btn-primary" id="btn-enter">Перейти в турнир</button>
+                <button class="btn btn-secondary" id="btn-save-telegram">Сохранить себе в Telegram</button>
+                <button class="btn btn-ghost" id="btn-share">Поделиться просмотром</button>
+                <button class="btn btn-primary" id="btn-enter">Перейти в турнир</button>
             </div>
         </section>
     `;
 
     container.querySelector('#btn-share').addEventListener('click', async () => {
-        const text = `Падел Американо\nКомпания: ${data.name}\nПароль: ${data.password}`;
-        if (navigator.share) {
-            await navigator.share({ title: 'Падел Американо', text });
-        } else {
-            await navigator.clipboard.writeText(text);
-            toast('Данные скопированы');
-        }
+        await shareViewerInvite(data.name, data.view_slug);
+    });
+
+    container.querySelector('#btn-save-telegram').addEventListener('click', () => {
+        const text = [
+            'Данные администратора Падел Американо',
+            `Компания: ${data.name}`,
+            `Код администратора: ${data.password}`,
+            'Сохраните это сообщение. Код потребуется для управления турниром.',
+        ].join('\n');
+        const telegram = new URL('https://t.me/share/url');
+        telegram.searchParams.set('url', `${window.location.origin}/`);
+        telegram.searchParams.set('text', text);
+        window.open(telegram.toString(), '_blank', 'noopener,noreferrer');
     });
 
     container.querySelector('#btn-enter').addEventListener('click', () => {

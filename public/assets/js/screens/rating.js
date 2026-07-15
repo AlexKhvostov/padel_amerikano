@@ -9,7 +9,7 @@ export async function renderRating(container) {
     const load = async (showError = true) => {
         try {
             const data = await rating.get(session.id);
-            if (!stopped) renderRows(container, data.rating || []);
+            if (!stopped) renderRows(container, data);
         } catch (e) {
             if (showError && !stopped) {
                 renderError(container, e.message, () => renderRating(container));
@@ -29,14 +29,20 @@ export async function renderRating(container) {
     };
 }
 
-function renderRows(container, rows) {
+function renderRows(container, data) {
+    const rows = data.rating || [];
+    const progress = data.progress || { played: 0, total: 0 };
+
     container.innerHTML = `
-        <header class="page-header">
+        <header class="page-header rating-header">
             <div>
                 <span class="eyebrow">Текущие результаты</span>
                 <h1>Рейтинг</h1>
             </div>
-            <span class="live-pill"><i></i> Live</span>
+            <div class="rating-progress">
+                <strong>${progress.played}/${progress.total}</strong>
+                <span>матчей сыграно</span>
+            </div>
         </header>
         <div class="rating-list">
             ${
@@ -53,24 +59,20 @@ function renderPlayer(player) {
     const placeClass = player.place <= 3 ? ` top-${player.place}` : '';
 
     return `
-        <article class="card rating-card ${!player.is_active ? 'inactive' : ''}">
-            <div class="rating-head">
-                <div class="rating-place${placeClass}">${player.place}</div>
-                <div class="rating-name">
+        <article class="rating-row ${!player.is_active ? 'inactive' : ''}">
+            <div class="rating-place${placeClass}">${player.place}</div>
+            <div class="rating-name">
+                <div>
                     <strong>${escapeHtml(player.name)}</strong>
                     ${
                         telegram
-                            ? `<a href="${telegram.href}" target="_blank" rel="noopener">${escapeHtml(telegram.label)}</a>`
-                            : '<span>Telegram не указан</span>'
+                            ? `<a href="${telegram.href}" target="_blank" rel="noopener" aria-label="Telegram ${escapeHtml(player.name)}">↗</a>`
+                            : ''
                     }
                 </div>
-                <div class="rating-points"><strong>${player.points}</strong><span>очков</span></div>
+                <span>Игры ${player.matches}/${player.planned_matches} · В ${player.wins} · П ${player.losses}</span>
             </div>
-            <div class="rating-stats">
-                <span>Матчей <strong>${player.matches}</strong></span>
-                <span>Побед <strong>${player.wins}</strong></span>
-                <span>Поражений <strong>${player.losses}</strong></span>
-            </div>
+            <div class="rating-points"><strong>${player.points}</strong><span>очков</span></div>
         </article>
     `;
 }

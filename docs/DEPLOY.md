@@ -42,7 +42,12 @@ APP_SECRET=случайная_строка_не_короче_32_символов
 Для новой базы выполните `sql/schema.sql`.
 
 Если старая схема уже установлена, выполните миграцию
-`sql/migrations/002_round_schedule_status.sql`.
+`sql/migrations/002_round_schedule_status.sql`, а затем
+`sql/migrations/003_viewer_access.sql` и
+`sql/migrations/004_short_view_links.sql`.
+
+Если миграция `002` уже применялась ранее, выполните последовательно `003` и `004`.
+Если `003` уже применялась — выполните только `004_short_view_links.sql`.
 
 ## 4. Проверка
 

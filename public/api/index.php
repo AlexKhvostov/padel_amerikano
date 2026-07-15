@@ -9,6 +9,7 @@ require_once dirname(__DIR__, 2) . '/src/Services/PlayerService.php';
 require_once dirname(__DIR__, 2) . '/src/Services/RoundService.php';
 require_once dirname(__DIR__, 2) . '/src/Services/ScoreService.php';
 require_once dirname(__DIR__, 2) . '/src/Services/RatingService.php';
+require_once dirname(__DIR__, 2) . '/src/Services/TournamentService.php';
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(204);
@@ -55,6 +56,11 @@ function route(string $method, string $uri): void
         jsonResponse(['companies' => CompanyService::search($q)]);
     }
 
+    if ($method === 'GET' && $uri === '/tournaments') {
+        $date = isset($_GET['date']) && $_GET['date'] !== '' ? (string) $_GET['date'] : null;
+        jsonResponse(TournamentService::publicList($date));
+    }
+
     if ($method === 'POST' && $uri === '/companies') {
         $body = readJsonBody();
         jsonResponse(CompanyService::create($body['name'] ?? ''), 201);
@@ -65,22 +71,33 @@ function route(string $method, string $uri): void
         jsonResponse(CompanyService::login($body['name'] ?? '', $body['password'] ?? ''));
     }
 
+    if (
+        preg_match('#^/viewer/([A-Za-z0-9_-]{12}|[a-f0-9]{64})$#', $uri, $m)
+        && $method === 'GET'
+    ) {
+        jsonResponse(CompanyService::loginViewer($m[1]));
+    }
+
     if (preg_match('#^/companies/(\d+)$#', $uri, $m) && $method === 'GET') {
         $id = (int) $m[1];
-        CompanyService::assertAccess($id);
-        jsonResponse(CompanyService::get($id));
+        $role = CompanyService::assertAccess($id);
+        $company = CompanyService::get($id);
+        if ($role === 'viewer') {
+            unset($company['view_token'], $company['view_slug']);
+        }
+        jsonResponse($company);
     }
 
     if (preg_match('#^/companies/(\d+)/settings$#', $uri, $m) && $method === 'PUT') {
         $id = (int) $m[1];
-        CompanyService::assertAccess($id);
+        CompanyService::assertAccess($id, true);
         $settings = CompanyService::updateSettings($id, readJsonBody());
         jsonResponse(['settings' => $settings]);
     }
 
     if (preg_match('#^/companies/(\d+)/reset$#', $uri, $m) && $method === 'DELETE') {
         $id = (int) $m[1];
-        CompanyService::assertAccess($id);
+        CompanyService::assertAccess($id, true);
         CompanyService::reset($id);
         jsonResponse(['ok' => true]);
     }

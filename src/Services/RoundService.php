@@ -38,7 +38,7 @@ final class RoundService
 
     public static function createNext(int $companyId): array
     {
-        CompanyService::assertAccess($companyId);
+        CompanyService::assertAccess($companyId, true);
         $pdo = db();
         $pdo->beginTransaction();
 

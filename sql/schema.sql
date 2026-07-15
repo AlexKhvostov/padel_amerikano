@@ -18,9 +18,13 @@ CREATE TABLE companies (
     id          INT AUTO_INCREMENT PRIMARY KEY,
     name        VARCHAR(100) NOT NULL,
     password    VARCHAR(255) NOT NULL,
+    view_token  CHAR(64) NOT NULL,
+    view_slug   CHAR(12) NOT NULL,
     settings    JSON NOT NULL,
     created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY uq_companies_name (name)
+    UNIQUE KEY uq_companies_name (name),
+    UNIQUE KEY uq_companies_view_token (view_token),
+    UNIQUE KEY uq_companies_view_slug (view_slug)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE players (

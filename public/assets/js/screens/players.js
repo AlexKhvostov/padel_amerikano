@@ -4,6 +4,7 @@ import { toast, initials, telegramLink, escapeHtml, confirmAction, renderError }
 
 export async function renderPlayers(container) {
     const session = getSession();
+    const canEdit = session.role !== 'viewer';
     let data;
 
     try {
@@ -19,9 +20,13 @@ export async function renderPlayers(container) {
                 <span class="eyebrow">Состав турнира</span>
                 <h1>Игроки</h1>
             </div>
-            <button class="header-action" id="show-add-player" aria-expanded="false">
-                <span aria-hidden="true">＋</span> Добавить
-            </button>
+            ${
+                canEdit
+                    ? `<button class="header-action" id="show-add-player" aria-expanded="false">
+                           <span aria-hidden="true">＋</span> Добавить
+                       </button>`
+                    : '<span class="status-pill">Просмотр</span>'
+            }
         </header>
 
         <div class="info-strip">
@@ -29,7 +34,9 @@ export async function renderPlayers(container) {
             <strong>${data.active_count}<small> / ${data.max}</small></strong>
         </div>
 
-        <div class="card add-player-card hidden" id="add-player-card">
+        ${
+            canEdit
+                ? `<div class="card add-player-card hidden" id="add-player-card">
             <div class="section-heading">
                 <h2>Новый игрок</h2>
                 <p>Telegram можно добавить позже</p>
@@ -46,13 +53,17 @@ export async function renderPlayers(container) {
                 <button class="btn btn-ghost" id="cancel-add-player">Отмена</button>
                 <button class="btn btn-primary" id="btn-add-player">Добавить</button>
             </div>
-        </div>
+                   </div>`
+                : ''
+        }
 
         <div id="players-list" class="player-list"></div>
     `;
 
     const listEl = container.querySelector('#players-list');
-    renderList(listEl, data.players, session.id);
+    renderList(listEl, data.players, session.id, canEdit);
+
+    if (!canEdit) return;
 
     const addCard = container.querySelector('#add-player-card');
     const showAddButton = container.querySelector('#show-add-player');
@@ -81,7 +92,7 @@ export async function renderPlayers(container) {
     });
 }
 
-function renderList(el, items, companyId) {
+function renderList(el, items, companyId, canEdit) {
     if (!items.length) {
         el.innerHTML = '<div class="empty">Пока нет игроков</div>';
         return;
@@ -97,10 +108,18 @@ function renderList(el, items, companyId) {
                 <div class="player-info">
                     <div class="name">${escapeHtml(p.name)}${!p.is_active ? ' (неактивен)' : ''}</div>
                     ${tg ? `<a href="${tg.href}" target="_blank" rel="noopener">${escapeHtml(tg.label)}</a>` : ''}
-                    <div class="player-actions">
-                        <button class="icon-action" data-edit="${p.id}" aria-label="Редактировать ${escapeHtml(p.name)}">✏️</button>
-                        <button class="icon-action danger" data-del="${p.id}" aria-label="Удалить ${escapeHtml(p.name)}">🗑️</button>
-                    </div>
+                    ${
+                        canEdit
+                            ? `<div class="player-actions">
+                                   <button class="icon-action" data-edit="${p.id}" aria-label="Редактировать ${escapeHtml(p.name)}">
+                                       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg>
+                                   </button>
+                                   <button class="icon-action danger" data-del="${p.id}" aria-label="Удалить ${escapeHtml(p.name)}">
+                                       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg>
+                                   </button>
+                               </div>`
+                            : ''
+                    }
                 </div>
             </div>`;
         })

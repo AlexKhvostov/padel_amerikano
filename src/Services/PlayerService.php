@@ -32,7 +32,7 @@ final class PlayerService
 
     public static function create(int $companyId, array $input): array
     {
-        CompanyService::assertAccess($companyId);
+        CompanyService::assertAccess($companyId, true);
 
         $name = trim($input['name'] ?? '');
         if ($name === '') {
@@ -84,7 +84,7 @@ final class PlayerService
     public static function update(int $playerId, array $input): array
     {
         $player = self::find($playerId);
-        CompanyService::assertAccess((int) $player['company_id']);
+        CompanyService::assertAccess((int) $player['company_id'], true);
 
         $name = trim($input['name'] ?? $player['name']);
         if ($name === '') {
@@ -114,7 +114,7 @@ final class PlayerService
     public static function delete(int $playerId): void
     {
         $player = self::find($playerId);
-        CompanyService::assertAccess((int) $player['company_id']);
+        CompanyService::assertAccess((int) $player['company_id'], true);
 
         if (CompanyService::isTournamentStarted((int) $player['company_id'])) {
             $stmt = db()->prepare('UPDATE players SET is_active = 0 WHERE id = ?');

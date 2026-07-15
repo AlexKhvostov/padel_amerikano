@@ -44,11 +44,13 @@ final class Token
 
     public static function fromRequest(): ?int
     {
+        return self::verify(self::rawFromRequest());
+    }
+
+    public static function rawFromRequest(): ?string
+    {
         $header = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
-        if (str_starts_with($header, 'Bearer ')) {
-            return self::verify(substr($header, 7));
-        }
-        return null;
+        return str_starts_with($header, 'Bearer ') ? substr($header, 7) : null;
     }
 
     private static function base64UrlEncode(string $data): string

@@ -5,19 +5,20 @@ const BASE = '/api';
 
 export async function api(path, options = {}) {
     const session = getSession();
+    const { silent = false, ...fetchOptions } = options;
     const headers = {
         'Content-Type': 'application/json',
-        ...(options.headers || {}),
+        ...(fetchOptions.headers || {}),
     };
     if (session?.token) {
         headers.Authorization = `Bearer ${session.token}`;
     }
 
-    showLoader();
+    if (!silent) showLoader();
     try {
         let res;
         try {
-            res = await fetch(BASE + path, { ...options, headers });
+            res = await fetch(BASE + path, { ...fetchOptions, headers });
         } catch {
             throw new Error('Нет соединения с сервером. Проверьте интернет и повторите.');
         }
@@ -33,7 +34,7 @@ export async function api(path, options = {}) {
         }
         return data;
     } finally {
-        hideLoader();
+        if (!silent) hideLoader();
     }
 }
 
@@ -42,6 +43,7 @@ export const companies = {
     create: (name) => api('/companies', { method: 'POST', body: JSON.stringify({ name }) }),
     login: (name, password) =>
         api('/companies/login', { method: 'POST', body: JSON.stringify({ name, password }) }),
+    view: (token) => api(`/viewer/${encodeURIComponent(token)}`),
     get: (id) => api(`/companies/${id}`),
     updateSettings: (id, settings) =>
         api(`/companies/${id}/settings`, { method: 'PUT', body: JSON.stringify(settings) }),
@@ -57,7 +59,7 @@ export const players = {
 };
 
 export const rounds = {
-    list: (companyId) => api(`/companies/${companyId}/rounds`),
+    list: (companyId, silent = false) => api(`/companies/${companyId}/rounds`, { silent }),
     create: (companyId) => api(`/companies/${companyId}/rounds`, { method: 'POST' }),
 };
 
@@ -75,4 +77,9 @@ export const matches = {
 
 export const rating = {
     get: (companyId) => api(`/companies/${companyId}/rating`),
+};
+
+export const tournaments = {
+    list: (date = '', silent = false) =>
+        api(`/tournaments${date ? `?date=${encodeURIComponent(date)}` : ''}`, { silent }),
 };

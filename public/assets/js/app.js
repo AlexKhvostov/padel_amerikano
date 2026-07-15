@@ -4,6 +4,7 @@ import { renderPlayers } from './screens/players.js';
 import { renderRounds } from './screens/rounds.js';
 import { renderRating } from './screens/rating.js';
 import { renderSettings } from './screens/settings.js';
+import { renderGames } from './screens/games.js';
 
 const screenEl = document.getElementById('screen');
 const navEl = document.getElementById('nav');
@@ -14,6 +15,7 @@ const screens = {
     rounds: renderRounds,
     rating: renderRating,
     settings: renderSettings,
+    games: renderGames,
 };
 
 let current = 'home';
@@ -29,13 +31,16 @@ export function navigate(name) {
 async function render() {
     const session = getSession();
     const isAuth = !!session?.token;
+    const isViewer = session?.role === 'viewer';
 
-    if (!isAuth && current !== 'home') {
+    if (!isAuth && !['home', 'games'].includes(current)) {
         current = 'home';
     }
 
     navEl.classList.toggle('hidden', !isAuth);
     screenEl.classList.toggle('auth-screen', !isAuth);
+    navEl.querySelector('[data-screen="settings"]')?.classList.toggle('hidden', isViewer);
+    navEl.querySelector('[data-action="exit-view"]')?.classList.toggle('hidden', !isViewer);
 
     navEl.querySelectorAll('.nav-btn').forEach((btn) => {
         const active = btn.dataset.screen === current;
@@ -46,8 +51,8 @@ async function render() {
 
     const renderer = screens[current] || screens.home;
     let cleanup = null;
-    if (current === 'home') {
-        cleanup = screens.home(screenEl, navigate);
+    if (current === 'home' || current === 'games') {
+        cleanup = await screens[current](screenEl, navigate);
     } else if (current === 'settings') {
         cleanup = await renderSettings(screenEl, navigate);
     } else {
@@ -59,11 +64,22 @@ async function render() {
 }
 
 navEl.querySelectorAll('.nav-btn').forEach((btn) => {
-    btn.addEventListener('click', () => navigate(btn.dataset.screen));
+    if (btn.dataset.screen) {
+        btn.addEventListener('click', () => navigate(btn.dataset.screen));
+    }
 });
 
-if (getSession()?.token) {
-    current = 'players';
+navEl.querySelector('[data-action="exit-view"]')?.addEventListener('click', () => {
+    clearSession();
+    navigate('games');
+});
+
+const viewLinkRequested =
+    /\/v\/[A-Za-z0-9_-]{12}\/?$/.test(window.location.pathname)
+    || new URLSearchParams(window.location.search).has('view');
+
+if (getSession()?.token && !viewLinkRequested) {
+    current = getSession()?.role === 'viewer' ? 'rounds' : 'players';
 }
 
 window.addEventListener('session-expired', () => {

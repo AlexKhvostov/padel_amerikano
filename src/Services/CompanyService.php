@@ -30,13 +30,17 @@ final class CompanyService
 
         $plainPassword = (string) random_int(1000, 999999);
         $hash = password_hash($plainPassword, PASSWORD_BCRYPT);
+        $viewToken = bin2hex(random_bytes(32));
+        $viewSlug = rtrim(strtr(base64_encode(random_bytes(9)), '+/', '-_'), '=');
         $settings = json_encode(defaultSettings(), JSON_UNESCAPED_UNICODE);
 
         try {
             $stmt = db()->prepare(
-                'INSERT INTO companies (name, password, settings) VALUES (?, ?, ?)'
+                'INSERT INTO companies
+                    (name, password, view_token, view_slug, settings)
+                 VALUES (?, ?, ?, ?, ?)'
             );
-            $stmt->execute([$name, $hash, $settings]);
+            $stmt->execute([$name, $hash, $viewToken, $viewSlug, $settings]);
         } catch (PDOException $e) {
             if ($e->getCode() === '23000') {
                 jsonError('Компания с таким названием уже существует');
@@ -51,6 +55,9 @@ final class CompanyService
             'id' => $id,
             'name' => $name,
             'password' => $plainPassword,
+            'view_token' => $viewToken,
+            'view_slug' => $viewSlug,
+            'role' => 'admin',
             'token' => $token,
             'settings' => defaultSettings(),
         ];
@@ -75,6 +82,10 @@ final class CompanyService
         return [
             'id' => (int) $company['id'],
             'name' => $company['name'],
+            'password' => $password,
+            'view_token' => $company['view_token'],
+            'view_slug' => $company['view_slug'],
+            'role' => 'admin',
             'token' => Token::create((int) $company['id']),
             'settings' => $settings,
         ];
@@ -82,7 +93,10 @@ final class CompanyService
 
     public static function get(int $companyId): array
     {
-        $stmt = db()->prepare('SELECT id, name, settings, created_at FROM companies WHERE id = ?');
+        $stmt = db()->prepare(
+            'SELECT id, name, view_token, view_slug, settings, created_at
+             FROM companies WHERE id = ?'
+        );
         $stmt->execute([$companyId]);
         $company = $stmt->fetch();
         if (!$company) {
@@ -92,6 +106,39 @@ final class CompanyService
         $company['settings'] = json_decode($company['settings'], true) ?: defaultSettings();
         $company['tournament_started'] = self::isTournamentStarted($companyId);
         return $company;
+    }
+
+    public static function loginViewer(string $viewKey): array
+    {
+        $isSlug = preg_match('/^[A-Za-z0-9_-]{12}$/', $viewKey) === 1;
+        $isLegacyToken = preg_match('/^[a-f0-9]{64}$/', $viewKey) === 1;
+        if (!$isSlug && !$isLegacyToken) {
+            jsonError('Ссылка просмотра недействительна', 404);
+        }
+
+        $stmt = db()->prepare(
+            $isSlug
+                ? 'SELECT id, name, view_token, settings
+                   FROM companies WHERE view_slug = ? LIMIT 1'
+                : 'SELECT id, name, view_token, settings
+                   FROM companies WHERE view_token = ? LIMIT 1'
+        );
+        $stmt->execute([$viewKey]);
+        $company = $stmt->fetch();
+        if (!$company) {
+            jsonError('Ссылка просмотра недействительна', 404);
+        }
+
+        $settings = json_decode($company['settings'], true) ?: defaultSettings();
+        unset($settings['access_code']);
+
+        return [
+            'id' => (int) $company['id'],
+            'name' => $company['name'],
+            'role' => 'viewer',
+            'token' => $company['view_token'],
+            'settings' => $settings,
+        ];
     }
 
     public static function updateSettings(int $companyId, array $input): array
@@ -125,12 +172,28 @@ final class CompanyService
         return (int) $stmt->fetchColumn() > 0;
     }
 
-    public static function assertAccess(int $companyId): void
+    public static function assertAccess(int $companyId, bool $write = false): string
     {
         $authId = Token::fromRequest();
-        if ($authId !== $companyId) {
-            jsonError('Доступ запрещён', 403);
+        if ($authId === $companyId) {
+            return 'admin';
         }
+
+        if (!$write) {
+            $viewToken = Token::rawFromRequest();
+            $stmt = db()->prepare(
+                'SELECT COUNT(*) FROM companies WHERE id = ? AND view_token = ?'
+            );
+            $stmt->execute([$companyId, $viewToken]);
+            if ((int) $stmt->fetchColumn() === 1) {
+                return 'viewer';
+            }
+        }
+
+        jsonError(
+            $write ? 'Изменения доступны только администратору' : 'Доступ запрещён',
+            403
+        );
     }
 
     public static function settings(int $companyId): array

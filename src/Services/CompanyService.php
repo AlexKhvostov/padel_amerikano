@@ -12,7 +12,10 @@ final class CompanyService
     public static function search(string $query): array
     {
         $stmt = db()->prepare(
-            'SELECT id, name FROM companies WHERE name LIKE ? ORDER BY name LIMIT 20'
+            'SELECT id, name
+             FROM companies
+             WHERE deleted_at IS NULL AND name LIKE ?
+             ORDER BY name LIMIT 20'
         );
         $stmt->execute(['%' . $query . '%']);
         return $stmt->fetchAll();
@@ -65,18 +68,21 @@ final class CompanyService
 
     public static function login(string $name, string $password): array
     {
-        LoginGuard::assertAllowed();
+        $name = trim($name);
+        LoginGuard::assertAllowed($name);
 
-        $stmt = db()->prepare('SELECT * FROM companies WHERE name = ? LIMIT 1');
-        $stmt->execute([trim($name)]);
+        $stmt = db()->prepare(
+            'SELECT * FROM companies WHERE deleted_at IS NULL AND name = ? LIMIT 1'
+        );
+        $stmt->execute([$name]);
         $company = $stmt->fetch();
 
         if (!$company || !password_verify($password, $company['password'])) {
-            LoginGuard::recordFailure();
+            LoginGuard::recordFailure($name);
             jsonError('Неверное название компании или пароль', 401);
         }
 
-        LoginGuard::recordSuccess();
+        LoginGuard::recordSuccess($name);
         $settings = json_decode($company['settings'], true) ?: defaultSettings();
 
         return [
@@ -95,7 +101,7 @@ final class CompanyService
     {
         $stmt = db()->prepare(
             'SELECT id, name, view_token, view_slug, settings, created_at
-             FROM companies WHERE id = ?'
+             FROM companies WHERE id = ? AND deleted_at IS NULL'
         );
         $stmt->execute([$companyId]);
         $company = $stmt->fetch();
@@ -119,9 +125,9 @@ final class CompanyService
         $stmt = db()->prepare(
             $isSlug
                 ? 'SELECT id, name, view_token, settings
-                   FROM companies WHERE view_slug = ? LIMIT 1'
+                   FROM companies WHERE view_slug = ? AND deleted_at IS NULL LIMIT 1'
                 : 'SELECT id, name, view_token, settings
-                   FROM companies WHERE view_token = ? LIMIT 1'
+                   FROM companies WHERE view_token = ? AND deleted_at IS NULL LIMIT 1'
         );
         $stmt->execute([$viewKey]);
         $company = $stmt->fetch();
@@ -159,10 +165,59 @@ final class CompanyService
         return $settings;
     }
 
+    public static function rename(int $companyId, string $name): array
+    {
+        $name = trim($name);
+        if ($name === '') {
+            jsonError('Укажите название компании');
+        }
+        if (mb_strlen($name) > 100) {
+            jsonError('Название компании слишком длинное');
+        }
+
+        try {
+            $stmt = db()->prepare(
+                'UPDATE companies
+                 SET name = ?
+                 WHERE id = ? AND deleted_at IS NULL'
+            );
+            $stmt->execute([$name, $companyId]);
+        } catch (PDOException $e) {
+            if ($e->getCode() === '23000') {
+                jsonError('Компания с таким названием уже существует');
+            }
+            throw $e;
+        }
+
+        if ($stmt->rowCount() !== 1) {
+            $check = db()->prepare(
+                'SELECT COUNT(*) FROM companies
+                 WHERE id = ? AND name = ? AND deleted_at IS NULL'
+            );
+            $check->execute([$companyId, $name]);
+            if ((int) $check->fetchColumn() !== 1) {
+                jsonError('Компания не найдена', 404);
+            }
+        }
+
+        return ['name' => $name];
+    }
+
     public static function reset(int $companyId): void
     {
         $stmt = db()->prepare('DELETE FROM rounds WHERE company_id = ?');
         $stmt->execute([$companyId]);
+    }
+
+    public static function delete(int $companyId): void
+    {
+        $stmt = db()->prepare(
+            'UPDATE companies SET deleted_at = NOW() WHERE id = ? AND deleted_at IS NULL'
+        );
+        $stmt->execute([$companyId]);
+        if ($stmt->rowCount() !== 1) {
+            jsonError('Компания не найдена', 404);
+        }
     }
 
     public static function isTournamentStarted(int $companyId): bool
@@ -176,13 +231,20 @@ final class CompanyService
     {
         $authId = Token::fromRequest();
         if ($authId === $companyId) {
-            return 'admin';
+            $stmt = db()->prepare(
+                'SELECT COUNT(*) FROM companies WHERE id = ? AND deleted_at IS NULL'
+            );
+            $stmt->execute([$companyId]);
+            if ((int) $stmt->fetchColumn() === 1) {
+                return 'admin';
+            }
         }
 
         if (!$write) {
             $viewToken = Token::rawFromRequest();
             $stmt = db()->prepare(
-                'SELECT COUNT(*) FROM companies WHERE id = ? AND view_token = ?'
+                'SELECT COUNT(*) FROM companies
+                 WHERE id = ? AND view_token = ? AND deleted_at IS NULL'
             );
             $stmt->execute([$companyId, $viewToken]);
             if ((int) $stmt->fetchColumn() === 1) {

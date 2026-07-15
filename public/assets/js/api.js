@@ -45,9 +45,12 @@ export const companies = {
         api('/companies/login', { method: 'POST', body: JSON.stringify({ name, password }) }),
     view: (token) => api(`/viewer/${encodeURIComponent(token)}`),
     get: (id) => api(`/companies/${id}`),
+    rename: (id, name) =>
+        api(`/companies/${id}`, { method: 'PUT', body: JSON.stringify({ name }) }),
     updateSettings: (id, settings) =>
         api(`/companies/${id}/settings`, { method: 'PUT', body: JSON.stringify(settings) }),
     reset: (id) => api(`/companies/${id}/reset`, { method: 'DELETE' }),
+    remove: (id) => api(`/companies/${id}`, { method: 'DELETE' }),
 };
 
 export const players = {
@@ -60,6 +63,7 @@ export const players = {
 
 export const rounds = {
     list: (companyId, silent = false) => api(`/companies/${companyId}/rounds`, { silent }),
+    schedule: (companyId) => api(`/companies/${companyId}/schedule`),
     create: (companyId) => api(`/companies/${companyId}/rounds`, { method: 'POST' }),
 };
 

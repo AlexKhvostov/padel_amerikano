@@ -16,12 +16,15 @@ final class TournamentService
                     c.id,
                     c.name,
                     c.view_slug,
+                    DATE_FORMAT(c.created_at, '%Y-%m-%d') AS created_date,
+                    DATE_FORMAT(c.created_at, '%H:%i') AS created_time,
                     DATE_FORMAT(MIN(r.created_at), '%Y-%m-%d') AS start_date,
                     DATE_FORMAT(MIN(r.created_at), '%H:%i') AS start_time,
                     DATE_FORMAT(
                         GREATEST(
-                            MAX(r.created_at),
-                            COALESCE(MAX(ms.updated_at), MAX(r.created_at))
+                            c.created_at,
+                            COALESCE(MAX(r.created_at), c.created_at),
+                            COALESCE(MAX(ms.updated_at), c.created_at)
                         ),
                         '%Y-%m-%dT%H:%i:%s'
                     ) AS updated_at,
@@ -33,6 +36,7 @@ final class TournamentService
                     COUNT(DISTINCT m.id) AS total_matches,
                     COUNT(DISTINCT CASE WHEN ms.is_finished = 1 THEN m.id END) AS played_matches,
                     CASE
+                        WHEN COUNT(DISTINCT r.id) = 0 THEN 'planned'
                         WHEN EXISTS (
                             SELECT 1 FROM rounds pending
                             WHERE pending.company_id = c.id
@@ -41,17 +45,18 @@ final class TournamentService
                         ELSE 'completed'
                     END AS status
                 FROM companies c
-                JOIN rounds r ON r.company_id = c.id
+                LEFT JOIN rounds r ON r.company_id = c.id
                 LEFT JOIN matches m ON m.round_id = r.id
                 LEFT JOIN match_scores ms ON ms.match_id = m.id
-                GROUP BY c.id, c.name, c.view_slug";
+                WHERE c.deleted_at IS NULL
+                GROUP BY c.id, c.name, c.view_slug, c.created_at";
 
         $params = [];
         if ($date !== null) {
-            $sql .= ' HAVING start_date = ?';
+            $sql .= ' HAVING created_date = ?';
             $params[] = $date;
         }
-        $sql .= ' ORDER BY MIN(r.created_at) DESC LIMIT 200';
+        $sql .= ' ORDER BY c.created_at DESC LIMIT 200';
 
         $stmt = db()->prepare($sql);
         $stmt->execute($params);

@@ -65,8 +65,9 @@ export function renderHome(container, navigate) {
 
     const selectCompany = (company) => {
         selectedCompany = { id: company.id, name: company.name };
+        searchName.value = company.name;
         loginBlock.classList.remove('hidden');
-        searchResults.innerHTML = `<li><strong>${escapeHtml(selectedCompany.name)}</strong></li>`;
+        searchResults.innerHTML = '';
         container.querySelector('#login-password').focus();
     };
 
@@ -139,6 +140,7 @@ export function renderHome(container, navigate) {
                 container.querySelector('#login-password').value
             );
             setSession(data);
+            window.history.replaceState({}, '', '/');
             navigate('players');
         } catch (e) {
             toast(e.message, true);

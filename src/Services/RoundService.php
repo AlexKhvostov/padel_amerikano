@@ -36,6 +36,74 @@ final class RoundService
         ];
     }
 
+    public static function fullSchedule(int $companyId): array
+    {
+        CompanyService::assertAccess($companyId);
+
+        $stmt = db()->prepare(
+            'SELECT id, round_number, bench_player_ids, status, created_at
+             FROM rounds
+             WHERE company_id = ?
+             ORDER BY round_number ASC'
+        );
+        $stmt->execute([$companyId]);
+        $rounds = $stmt->fetchAll();
+        $playerMap = self::playerMap($companyId);
+
+        if ($rounds !== []) {
+            return ['rounds' => self::hydrateFullSchedule($companyId, $rounds, $playerMap)];
+        }
+
+        $playerIds = PlayerService::activeIds($companyId);
+        if (count($playerIds) < 4) {
+            return ['rounds' => []];
+        }
+
+        $settings = CompanyService::settings($companyId);
+        $preview = RoundGenerator::generateSchedule(
+            $playerIds,
+            max(1, (int) ($settings['courts_count'] ?? 1))
+        );
+
+        $result = [];
+        foreach ($preview['rounds'] as $index => $round) {
+            $matches = [];
+            foreach ($round['matches'] as $court => $match) {
+                $matches[] = [
+                    'id' => null,
+                    'court_number' => (int) $court,
+                    'score_team1' => null,
+                    'score_team2' => null,
+                    'is_finished' => false,
+                    'teams' => [
+                        1 => array_map(
+                            fn(int $id) => $playerMap[$id] ?? ['id' => $id, 'name' => '?'],
+                            $match['team1']
+                        ),
+                        2 => array_map(
+                            fn(int $id) => $playerMap[$id] ?? ['id' => $id, 'name' => '?'],
+                            $match['team2']
+                        ),
+                    ],
+                ];
+            }
+
+            $result[] = [
+                'id' => null,
+                'round_number' => $index + 1,
+                'status' => 'planned',
+                'bench' => array_map(
+                    fn(int $id) => $playerMap[$id] ?? ['id' => $id, 'name' => '?'],
+                    $round['bench']
+                ),
+                'matches' => $matches,
+                'is_complete' => false,
+            ];
+        }
+
+        return ['rounds' => $result];
+    }
+
     public static function createNext(int $companyId): array
     {
         CompanyService::assertAccess($companyId, true);
@@ -193,6 +261,71 @@ final class RoundService
         $round['matches'] = self::matchesForRound((int) $round['id'], $playerMap);
         $round['is_complete'] = self::isRoundComplete($round['matches']);
         return $round;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rounds
+     * @param array<int, array<string, mixed>> $playerMap
+     * @return array<int, array<string, mixed>>
+     */
+    private static function hydrateFullSchedule(
+        int $companyId,
+        array $rounds,
+        array $playerMap
+    ): array {
+        $stmt = db()->prepare(
+            'SELECT m.id, m.round_id, m.court_number,
+                    ms.score_team1, ms.score_team2, ms.is_finished,
+                    mp.player_id, mp.team
+             FROM rounds r
+             JOIN matches m ON m.round_id = r.id
+             LEFT JOIN match_scores ms ON ms.match_id = m.id
+             LEFT JOIN match_players mp ON mp.match_id = m.id
+             WHERE r.company_id = ?
+             ORDER BY r.round_number, m.court_number, mp.team, mp.player_id'
+        );
+        $stmt->execute([$companyId]);
+
+        $matches = [];
+        while ($row = $stmt->fetch()) {
+            $roundId = (int) $row['round_id'];
+            $matchId = (int) $row['id'];
+            if (!isset($matches[$roundId][$matchId])) {
+                $matches[$roundId][$matchId] = [
+                    'id' => $matchId,
+                    'court_number' => (int) $row['court_number'],
+                    'score_team1' => $row['score_team1'] === null
+                        ? null
+                        : (int) $row['score_team1'],
+                    'score_team2' => $row['score_team2'] === null
+                        ? null
+                        : (int) $row['score_team2'],
+                    'is_finished' => (bool) $row['is_finished'],
+                    'teams' => [1 => [], 2 => []],
+                ];
+            }
+
+            if ($row['player_id'] !== null) {
+                $playerId = (int) $row['player_id'];
+                $matches[$roundId][$matchId]['teams'][(int) $row['team']][] =
+                    $playerMap[$playerId] ?? ['id' => $playerId, 'name' => '?'];
+            }
+        }
+
+        foreach ($rounds as &$round) {
+            $round['id'] = (int) $round['id'];
+            $round['round_number'] = (int) $round['round_number'];
+            $benchIds = json_decode($round['bench_player_ids'] ?? '[]', true) ?: [];
+            $round['bench'] = array_map(
+                fn($id) => $playerMap[$id] ?? ['id' => (int) $id, 'name' => '?'],
+                $benchIds
+            );
+            unset($round['bench_player_ids']);
+            $round['matches'] = array_values($matches[(int) $round['id']] ?? []);
+            $round['is_complete'] = self::isRoundComplete($round['matches']);
+        }
+
+        return $rounds;
     }
 
     private static function findPublishedRound(int $companyId, int $roundId): array

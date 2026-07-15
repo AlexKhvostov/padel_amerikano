@@ -1,6 +1,6 @@
 import { players } from '../api.js';
 import { getSession } from '../storage.js';
-import { toast, initials, telegramLink, escapeHtml, confirmAction, renderError } from '../ui.js';
+import { toast, telegramLink, escapeHtml, confirmAction, renderError } from '../ui.js';
 
 export async function renderPlayers(container) {
     const session = getSession();
@@ -41,13 +41,15 @@ export async function renderPlayers(container) {
                 <h2>Новый игрок</h2>
                 <p>Telegram можно добавить позже</p>
             </div>
-            <div class="field">
-                <label for="player-name">Имя *</label>
-                <input id="player-name" placeholder="Иван Петров">
-            </div>
-            <div class="field">
-                <label for="player-telegram">Telegram</label>
-                <input id="player-telegram" placeholder="@username">
+            <div class="add-player-fields">
+                <div class="field">
+                    <label for="player-name">Имя *</label>
+                    <input id="player-name" placeholder="Иван Петров">
+                </div>
+                <div class="field">
+                    <label for="player-telegram">Telegram</label>
+                    <input id="player-telegram" placeholder="@username">
+                </div>
             </div>
             <div class="button-row">
                 <button class="btn btn-ghost" id="cancel-add-player">Отмена</button>
@@ -71,7 +73,6 @@ export async function renderPlayers(container) {
         addCard.classList.toggle('hidden');
         const expanded = !addCard.classList.contains('hidden');
         showAddButton.setAttribute('aria-expanded', String(expanded));
-        if (expanded) container.querySelector('#player-name').focus();
     });
     container.querySelector('#cancel-add-player').addEventListener('click', () => {
         addCard.classList.add('hidden');
@@ -99,12 +100,12 @@ function renderList(el, items, companyId, canEdit) {
     }
 
     el.innerHTML = items
-        .map((p) => {
+        .map((p, index) => {
             const tg = telegramLink(p.telegram);
             const inactive = !p.is_active ? ' inactive' : '';
             return `
             <div class="card player-card${inactive}">
-                <div class="avatar">${initials(p.name)}</div>
+                <div class="player-number" aria-label="Номер ${index + 1}">${index + 1}</div>
                 <div class="player-info">
                     <div class="name">${escapeHtml(p.name)}${!p.is_active ? ' (неактивен)' : ''}</div>
                     ${tg ? `<a href="${tg.href}" target="_blank" rel="noopener">${escapeHtml(tg.label)}</a>` : ''}
@@ -150,12 +151,25 @@ function editPlayer(listEl, items, id, companyId) {
     const card = listEl.querySelector(`[data-edit="${id}"]`)?.closest('.card');
     if (!card) return;
 
+    card.classList.add('editing');
     card.innerHTML = `
-        <div class="section-heading"><h2>Редактирование</h2><p>${escapeHtml(p.name)}</p></div>
-        <div class="field"><label>Имя</label><input id="edit-name" value="${escapeHtml(p.name)}"></div>
-        <div class="field"><label>Telegram</label><input id="edit-tg" value="${escapeHtml(p.telegram || '')}"></div>
-        <button class="btn btn-primary" id="save-edit">Сохранить</button>
+        <div class="edit-player-head">
+            <strong>${escapeHtml(p.name)}</strong>
+            <span>Редактирование игрока</span>
+        </div>
+        <div class="edit-player-fields">
+            <div class="field"><label for="edit-name">Имя</label><input id="edit-name" value="${escapeHtml(p.name)}"></div>
+            <div class="field"><label for="edit-tg">Telegram</label><input id="edit-tg" value="${escapeHtml(p.telegram || '')}"></div>
+        </div>
+        <div class="edit-player-actions">
+            <button class="btn btn-ghost" id="cancel-edit">Отмена</button>
+            <button class="btn btn-primary" id="save-edit">Сохранить</button>
+        </div>
     `;
+
+    card.querySelector('#cancel-edit').addEventListener('click', () => {
+        renderList(listEl, items, companyId, true);
+    });
 
     card.querySelector('#save-edit').addEventListener('click', async () => {
         try {

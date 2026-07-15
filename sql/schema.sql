@@ -22,9 +22,14 @@ CREATE TABLE companies (
     view_slug   CHAR(12) NOT NULL,
     settings    JSON NOT NULL,
     created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY uq_companies_name (name),
+    deleted_at  DATETIME NULL,
+    active_name VARCHAR(100) GENERATED ALWAYS AS (
+        CASE WHEN deleted_at IS NULL THEN name ELSE NULL END
+    ) VIRTUAL,
+    UNIQUE KEY uq_companies_active_name (active_name),
     UNIQUE KEY uq_companies_view_token (view_token),
-    UNIQUE KEY uq_companies_view_slug (view_slug)
+    UNIQUE KEY uq_companies_view_slug (view_slug),
+    INDEX idx_companies_deleted_at (deleted_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE players (
@@ -85,6 +90,8 @@ CREATE TABLE match_scores (
 CREATE TABLE login_attempts (
     id         INT AUTO_INCREMENT PRIMARY KEY,
     ip_address VARCHAR(45) NOT NULL,
+    company_name VARCHAR(100) NOT NULL,
     attempted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_login_attempts_ip_time (ip_address, attempted_at)
+    INDEX idx_login_attempts_ip_time (ip_address, attempted_at),
+    INDEX idx_login_attempts_ip_company_time (ip_address, company_name, attempted_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

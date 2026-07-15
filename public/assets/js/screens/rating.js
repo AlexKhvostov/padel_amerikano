@@ -70,7 +70,11 @@ function renderPlayer(player) {
                             : ''
                     }
                 </div>
-                <span>Игры ${player.matches}/${player.planned_matches} · В ${player.wins} · П ${player.losses}</span>
+                <div class="rating-metrics" aria-label="Игры ${player.matches} из ${player.planned_matches}, побед ${player.wins}, поражений ${player.losses}">
+                    <span class="games"><b>${player.matches}/${player.planned_matches}</b><small>игр</small></span>
+                    <span class="wins"><b>${player.wins}</b><small>побед</small></span>
+                    <span class="losses"><b>${player.losses}</b><small>пораж.</small></span>
+                </div>
             </div>
             <div class="rating-points"><strong>${player.points}</strong><span>очков</span></div>
         </article>

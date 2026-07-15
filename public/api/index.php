@@ -88,6 +88,20 @@ function route(string $method, string $uri): void
         jsonResponse($company);
     }
 
+    if (preg_match('#^/companies/(\d+)$#', $uri, $m) && $method === 'DELETE') {
+        $id = (int) $m[1];
+        CompanyService::assertAccess($id, true);
+        CompanyService::delete($id);
+        jsonResponse(['ok' => true]);
+    }
+
+    if (preg_match('#^/companies/(\d+)$#', $uri, $m) && $method === 'PUT') {
+        $id = (int) $m[1];
+        CompanyService::assertAccess($id, true);
+        $body = readJsonBody();
+        jsonResponse(CompanyService::rename($id, (string) ($body['name'] ?? '')));
+    }
+
     if (preg_match('#^/companies/(\d+)/settings$#', $uri, $m) && $method === 'PUT') {
         $id = (int) $m[1];
         CompanyService::assertAccess($id, true);
@@ -121,6 +135,10 @@ function route(string $method, string $uri): void
 
     if (preg_match('#^/companies/(\d+)/rounds$#', $uri, $m) && $method === 'GET') {
         jsonResponse(RoundService::list((int) $m[1]));
+    }
+
+    if (preg_match('#^/companies/(\d+)/schedule$#', $uri, $m) && $method === 'GET') {
+        jsonResponse(RoundService::fullSchedule((int) $m[1]));
     }
 
     if (preg_match('#^/companies/(\d+)/rounds$#', $uri, $m) && $method === 'POST') {

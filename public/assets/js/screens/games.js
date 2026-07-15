@@ -24,6 +24,12 @@ export async function renderGames(container, navigate) {
 
     const actions = {
         openHome: () => navigate('home'),
+        adminLogin: (companyName) => {
+            const url = new URL('/', window.location.origin);
+            url.searchParams.set('company', companyName);
+            window.history.replaceState({}, '', `${url.pathname}${url.search}`);
+            navigate('home');
+        },
         selectDate: async (date) => {
             selectedDate = date;
             await load(true);
@@ -52,9 +58,9 @@ export async function renderGames(container, navigate) {
 
 function renderGamesView(container, items, selectedDate, actions) {
     const groups = Object.groupBy
-        ? Object.groupBy(items, (item) => item.start_date)
+        ? Object.groupBy(items, (item) => item.created_date)
         : items.reduce((result, item) => {
-              (result[item.start_date] ||= []).push(item);
+              (result[item.created_date] ||= []).push(item);
               return result;
           }, {});
 
@@ -67,8 +73,8 @@ function renderGamesView(container, items, selectedDate, actions) {
             <button class="header-action" id="btn-open-auth">Создать / войти</button>
         </header>
 
-        <div class="games-filter card">
-            <label for="games-date">Дата</label>
+        <div class="games-filter">
+            <label for="games-date">Создана</label>
             <input type="date" id="games-date" value="${selectedDate}">
             <button class="filter-all ${selectedDate ? '' : 'active'}" id="btn-all-games">Все</button>
         </div>
@@ -80,7 +86,7 @@ function renderGamesView(container, items, selectedDate, actions) {
                           .map(([date, games]) => renderGroup(date, games))
                           .join('')
                     : `<div class="empty games-empty">
-                           На выбранную дату запущенных игр нет
+                           На выбранную дату компаний нет
                            ${selectedDate ? '<button class="btn btn-secondary" id="btn-empty-all">Показать все игры</button>' : ''}
                        </div>`
             }
@@ -95,6 +101,9 @@ function renderGamesView(container, items, selectedDate, actions) {
     container.querySelector('#btn-empty-all')?.addEventListener('click', () => actions.selectDate(''));
     container.querySelectorAll('[data-watch]').forEach((button) => {
         button.addEventListener('click', () => actions.watch(button.dataset.watch));
+    });
+    container.querySelectorAll('[data-admin-login]').forEach((button) => {
+        button.addEventListener('click', () => actions.adminLogin(button.dataset.adminLogin));
     });
 }
 
@@ -111,24 +120,26 @@ function renderGroup(date, games) {
 
 function renderGame(game) {
     const active = game.status === 'active';
+    const planned = game.status === 'planned';
     return `
-        <article class="card game-card">
-            <div class="game-main">
-                <div class="game-title">
-                    <strong>${escapeHtml(game.name)}</strong>
-                    <span class="game-status ${active ? 'active' : 'completed'}">${active ? 'Идёт' : 'Завершён'}</span>
-                </div>
-                <div class="game-meta">
-                    <span>Старт <strong>${escapeHtml(game.start_time)}</strong></span>
-                    <span>Обновлено <strong>${formatUpdated(game.updated_at)}</strong></span>
-                </div>
+        <article class="game-row status-${game.status}">
+            <div class="game-title">
+                <strong>${escapeHtml(game.name)}</strong>
+                <span class="game-status ${planned ? 'planned' : active ? 'active' : 'completed'}">
+                    ${planned ? 'Не начат' : active ? 'Идёт' : 'Завершён'}
+                </span>
             </div>
-            <div class="game-stats">
-                <span><strong>${game.participants}</strong> игроков</span>
-                <span><strong>${game.total_matches}</strong> матчей</span>
-                <span><strong>${game.played_matches}/${game.total_matches}</strong> сыграно</span>
+            <div class="game-facts">
+                <span><small>Создана</small><strong>${formatShortDate(game.created_date)} ${escapeHtml(game.created_time)}</strong></span>
+                <span><small>Старт</small><strong>${game.start_date ? `${formatShortDate(game.start_date)} ${escapeHtml(game.start_time)}` : '—'}</strong></span>
+                <span><small>Игроки</small><strong>${game.participants}</strong></span>
+                <span><small>Матчи</small><strong>${game.played_matches}/${game.total_matches}</strong></span>
             </div>
-            <button class="btn btn-secondary game-watch" data-watch="${game.view_slug}">Смотреть</button>
+            <div class="game-updated">Обновлено: ${formatUpdated(game.updated_at)}</div>
+            <div class="game-actions">
+                <button class="btn btn-ghost" data-admin-login="${escapeHtml(game.name)}">Войти</button>
+                <button class="btn btn-secondary" data-watch="${game.view_slug}">Смотреть</button>
+            </div>
         </article>
     `;
 }
@@ -159,4 +170,9 @@ function formatUpdated(value) {
         hour: '2-digit',
         minute: '2-digit',
     }).format(date);
+}
+
+function formatShortDate(value) {
+    const [, month, day] = String(value || '').split('-');
+    return day && month ? `${day}.${month}` : '—';
 }

@@ -28,6 +28,17 @@ export async function renderSettings(container, navigate) {
         </header>
         ${locked ? '<div class="notice compact">Турнир уже начат. Параметры защищены от изменений.</div>' : ''}
 
+        <form class="card company-name-setting" id="company-name-form">
+            <div>
+                <label for="company-name-input">Название компании</label>
+                <span>Отображается в поиске и списке игр</span>
+            </div>
+            <input id="company-name-input" maxlength="100" value="${escapeHtml(company.name)}" aria-label="Название компании">
+            <button type="submit" aria-label="Сохранить название">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>
+            </button>
+        </form>
+
         <div class="card access-card">
             <div class="access-details">
                 <span class="eyebrow">Код администратора</span>
@@ -78,8 +89,25 @@ export async function renderSettings(container, navigate) {
         <div class="settings-actions">
             <button class="list-action danger" id="btn-reset"><span>Сбросить турнир</span><b>Все результаты будут удалены</b></button>
             <button class="list-action" id="btn-logout"><span>Выйти из компании</span><b>Вернуться на экран входа</b></button>
+            <button class="list-action danger delete-company" id="btn-delete-company">
+                <span>Удалить компанию</span><b>Компания исчезнет из сервиса без возможности возврата</b>
+            </button>
         </div>
     `;
+
+    container.querySelector('#company-name-form').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const input = container.querySelector('#company-name-input');
+        try {
+            const { name } = await companies.rename(session.id, input.value);
+            session.name = name;
+            setSession(session);
+            toast('Название компании сохранено');
+            renderSettings(container, navigate);
+        } catch (e) {
+            toast(e.message, true);
+        }
+    });
 
     container.querySelector('#btn-toggle-code')?.addEventListener('click', (event) => {
         const button = event.currentTarget;
@@ -125,5 +153,21 @@ export async function renderSettings(container, navigate) {
     container.querySelector('#btn-logout').addEventListener('click', () => {
         clearSession();
         navigate('home');
+    });
+
+    container.querySelector('#btn-delete-company').addEventListener('click', async () => {
+        const confirmed = confirmAction(
+            `Удалить компанию «${company.name}»?\n\nОна исчезнет из поиска, списка игр и станет недоступна по ссылкам. Отменить это действие через сервис невозможно.`
+        );
+        if (!confirmed) return;
+
+        try {
+            await companies.remove(session.id);
+            clearSession();
+            toast('Компания удалена');
+            navigate('games');
+        } catch (e) {
+            toast(e.message, true);
+        }
     });
 }

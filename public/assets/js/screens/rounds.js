@@ -59,13 +59,34 @@ function renderRoundsContent(container, data, session, canEdit, reload, setEditi
                 <span class="eyebrow">Расписание</span>
                 <h1>Раунды</h1>
             </div>
-            ${
-                session.role === 'viewer'
-                    ? '<span class="live-pill"><i></i> Просмотр</span>'
-                    : lastRound
-                      ? `<span class="status-pill">${rotationDone ? 'Завершено' : `Раунд ${lastRound.round_number}`}</span>`
-                      : ''
-            }
+            <div class="round-page-actions">
+                ${
+                    session.role === 'viewer'
+                        ? '<span class="live-pill"><i></i> Просмотр</span>'
+                        : lastRound
+                          ? `<span class="status-pill">${rotationDone ? 'Завершено' : `Раунд ${lastRound.round_number}`}</span>`
+                          : ''
+                }
+                ${
+                    schedule.total_rounds && !schedule.minimum_players_required
+                        ? `<button class="schedule-grid-icon" id="btn-show-grid" aria-label="Показать всю сетку" title="Показать всю сетку">
+                               <span class="schedule-grid-visual" aria-hidden="true">
+                                   <svg class="schedule-grid-shape" viewBox="0 0 24 24">
+                                       <rect x="3" y="3" width="7" height="7" rx="1"/>
+                                       <rect x="14" y="3" width="7" height="7" rx="1"/>
+                                       <rect x="3" y="14" width="7" height="7" rx="1"/>
+                                       <rect x="14" y="14" width="7" height="7" rx="1"/>
+                                   </svg>
+                                   <svg class="schedule-ball-shape" viewBox="0 0 24 24">
+                                       <circle cx="12" cy="12" r="9"/>
+                                       <path class="tennis-seam-shadow" d="M6.3 5.2c7.8 4.7 7.8 8.9 2 13.8M17.7 18.8c-7.8-4.7-7.8-8.9-2-13.8"/>
+                                       <path class="tennis-seam" d="M6.3 5.2c7.8 4.7 7.8 8.9 2 13.8M17.7 18.8c-7.8-4.7-7.8-8.9-2-13.8"/>
+                                   </svg>
+                               </span>
+                           </button>`
+                        : ''
+                }
+            </div>
         </header>
         ${renderScheduleSummary(schedule)}
         ${
@@ -78,6 +99,13 @@ function renderRoundsContent(container, data, session, canEdit, reload, setEditi
                   </button>`
         }
         <div id="rounds-list" class="rounds-list"></div>
+        <dialog class="schedule-dialog" id="schedule-dialog">
+            <div class="schedule-dialog-head">
+                <div><span class="eyebrow">Полная ротация</span><h2>Сетка игр</h2></div>
+                <button class="dialog-close" id="btn-close-grid" aria-label="Закрыть">×</button>
+            </div>
+            <div class="schedule-dialog-body" id="schedule-dialog-body"></div>
+        </dialog>
     `;
 
     const listEl = container.querySelector('#rounds-list');
@@ -108,6 +136,8 @@ function renderRoundsContent(container, data, session, canEdit, reload, setEditi
             toast(e.message, true);
         }
     });
+
+    bindScheduleDialog(container, session.id);
 }
 
 function renderScheduleSummary(schedule) {
@@ -155,18 +185,27 @@ function renderRound(round, expanded, canEdit) {
 }
 
 function renderMatch(match, canEdit) {
-    const team1 = match.teams[1].map((player) => escapeHtml(player.name)).join(' + ');
-    const team2 = match.teams[2].map((player) => escapeHtml(player.name)).join(' + ');
+    const team1 = renderTeamNames(match.teams[1]);
+    const team2 = renderTeamNames(match.teams[2]);
+    const editButton =
+        canEdit && match.is_finished
+            ? `<button class="match-edit-icon btn-edit-score" aria-label="Изменить счёт на корте ${match.court_number}">
+                   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg>
+               </button>`
+            : '';
 
     return `
         <div class="match-card ${match.is_finished ? 'match-done' : ''}" data-match="${match.id}">
-            <div class="court"><span>Корт ${match.court_number}</span>${match.is_finished ? '<span class="match-status">Завершён</span>' : '<span class="match-status active">Идёт</span>'}</div>
+            <div class="court">
+                <span class="court-main">Корт ${match.court_number}${editButton}</span>
+                ${match.is_finished ? '<span class="match-status">Завершён</span>' : '<span class="match-status active">Идёт</span>'}
+            </div>
             <div class="match-line">
-                <div class="team blue"><span class="team-badge">A</span><span>${team1}</span></div>
+                <div class="team blue"><span class="team-badge">A</span><span class="team-names">${team1}</span></div>
                 <div class="score-display">
                     <strong>${match.is_finished ? match.score_team1 : '—'}</strong><span>:</span><strong>${match.is_finished ? match.score_team2 : '—'}</strong>
                 </div>
-                <div class="team red"><span>${team2}</span><span class="team-badge">B</span></div>
+                <div class="team red"><span class="team-names">${team2}</span><span class="team-badge">B</span></div>
             </div>
             ${
                 canEdit
@@ -178,15 +217,81 @@ function renderMatch(match, canEdit) {
                 </div>
                 <button class="btn btn-secondary btn-save-score">Сохранить</button>
             </div>
-            ${
-                match.is_finished
-                    ? '<button class="btn btn-secondary btn-edit-score">Изменить счёт</button>'
-                    : ''
-            }
                     `
                     : ''
             }
         </div>`;
+}
+
+function renderTeamNames(players) {
+    return players
+        .map((player) => `<span title="${escapeHtml(player.name)}">${escapeHtml(player.name)}</span>`)
+        .join('');
+}
+
+function bindScheduleDialog(container, companyId) {
+    const dialog = container.querySelector('#schedule-dialog');
+    const body = container.querySelector('#schedule-dialog-body');
+    const closeDialog = () => {
+        if (typeof dialog.close === 'function') dialog.close();
+        else dialog.removeAttribute('open');
+    };
+
+    container.querySelector('#btn-show-grid')?.addEventListener('click', async () => {
+        if (typeof dialog.showModal === 'function') dialog.showModal();
+        else dialog.setAttribute('open', '');
+        body.innerHTML = '<div class="empty">Загружаем сетку…</div>';
+
+        try {
+            const data = await rounds.schedule(companyId);
+            body.innerHTML = data.rounds?.length
+                ? data.rounds.map(renderGridRound).join('')
+                : '<div class="empty">Сетка ещё не рассчитана</div>';
+        } catch (error) {
+            body.innerHTML = `<div class="error-box">${escapeHtml(error.message)}</div>`;
+        }
+    });
+
+    container.querySelector('#btn-close-grid')?.addEventListener('click', closeDialog);
+    dialog?.addEventListener('click', (event) => {
+        if (event.target === dialog) closeDialog();
+    });
+}
+
+function renderGridRound(round) {
+    const statuses = {
+        planned: 'План',
+        active: 'Активный',
+        completed: 'Готово',
+    };
+    const bench = round.bench?.length
+        ? `<div class="grid-bench">Отдых: ${round.bench.map((player) => escapeHtml(player.name)).join(', ')}</div>`
+        : '';
+
+    return `
+        <section class="grid-round">
+            <header><strong>Раунд ${round.round_number}</strong><span class="${round.status}">${statuses[round.status] || ''}</span></header>
+            ${bench}
+            <div class="grid-matches">
+                ${(round.matches || []).map(renderGridMatch).join('')}
+            </div>
+        </section>
+    `;
+}
+
+function renderGridMatch(match) {
+    return `
+        <div class="grid-match">
+            <b>К${match.court_number}</b>
+            <span class="grid-team">${renderGridTeam(match.teams[1])}</span>
+            <i>${match.is_finished ? `${match.score_team1}:${match.score_team2}` : '—'}</i>
+            <span class="grid-team right">${renderGridTeam(match.teams[2])}</span>
+        </div>
+    `;
+}
+
+function renderGridTeam(players) {
+    return (players || []).map((player) => `<span>${escapeHtml(player.name)}</span>`).join('');
 }
 
 function bindRoundEvents(container, canEdit, reload, setEditing) {

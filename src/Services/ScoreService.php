@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/CompanyService.php';
+require_once dirname(__DIR__) . '/Domain/ScoreValidator.php';
 
 final class ScoreService
 {
@@ -11,73 +12,39 @@ final class ScoreService
         $match = self::getMatch($matchId);
         CompanyService::assertAccess($match['company_id']);
 
-        if (!isset($input['score_team1'], $input['score_team2'])) {
-            jsonError('Укажите счёт обеих команд');
+        try {
+            $validated = ScoreValidator::validate(
+                $input['score_team1'] ?? null,
+                $input['score_team2'] ?? null,
+                ($input['confirm_invalid_total'] ?? false) === true
+            );
+        } catch (ScoreConfirmationRequiredException $e) {
+            jsonError(
+                $e->getMessage(),
+                422,
+                [
+                    'code' => 'SCORE_TOTAL_CONFIRM_REQUIRED',
+                    'total' => $e->total,
+                    'allowed_totals' => ScoreValidator::STANDARD_TOTALS,
+                ]
+            );
+        } catch (ScoreValidationException $e) {
+            jsonError($e->getMessage());
         }
-
-        $s1 = (int) $input['score_team1'];
-        $s2 = (int) $input['score_team2'];
-        $settings = CompanyService::settings($match['company_id']);
-
-        self::validateScore($s1, $s2, $settings);
 
         $stmt = db()->prepare(
-            'UPDATE match_scores SET score_team1 = ?, score_team2 = ?, is_finished = 1 WHERE match_id = ?'
+            'UPDATE match_scores
+             SET score_team1 = ?, score_team2 = ?, is_finished = 1
+             WHERE match_id = ?'
         );
-        $stmt->execute([$s1, $s2, $matchId]);
+        $stmt->execute([
+            $validated['score_team1'],
+            $validated['score_team2'],
+            $matchId,
+        ]);
+        self::completeRoundWhenReady((int) $match['round_id']);
 
         return self::getMatch($matchId);
-    }
-
-    private static function validateScore(int $s1, int $s2, array $settings): void
-    {
-        if ($s1 < 0 || $s2 < 0) {
-            jsonError('Счёт не может быть отрицательным');
-        }
-
-        $limit = (int) $settings['score_limit'];
-        $half = $limit / 2;
-        $maxWithExtra = $settings['extra_point_always'] ? $limit + 1 : $limit;
-
-        if ($s1 + $s2 > $maxWithExtra + ($settings['extra_point_always'] ? 0 : 1)) {
-            jsonError("Сумма очков превышает допустимый максимум для игры до $limit");
-        }
-
-        if ($s1 > $maxWithExtra || $s2 > $maxWithExtra) {
-            jsonError("Максимальный счёт команды: $maxWithExtra");
-        }
-
-        $diff = abs($s1 - $s2);
-
-        if ($settings['extra_point_always']) {
-            if ($diff !== 1) {
-                jsonError('При обязательном +1 разница между командами должна быть ровно 1');
-            }
-            return;
-        }
-
-        if ($s1 === $half && $s2 === $half && $settings['extra_point_on_tie']) {
-            jsonError('При равном счёте нужен дополнительный розыгрыш (+1)');
-        }
-
-        if ($diff === 0) {
-            jsonError('Ничья недопустима');
-        }
-
-        if ($diff < 1) {
-            jsonError('Разница между командами должна быть не менее 1');
-        }
-
-        $winner = max($s1, $s2);
-        $loser = min($s1, $s2);
-
-        if ($winner === $half + 1 && $loser === $half && $settings['extra_point_on_tie']) {
-            return;
-        }
-
-        if ($winner > $limit) {
-            jsonError("Максимальный счёт без +1: $limit");
-        }
     }
 
     private static function getMatch(int $matchId): array
@@ -97,7 +64,34 @@ final class ScoreService
         }
         $match['id'] = (int) $match['id'];
         $match['company_id'] = (int) $match['company_id'];
+        $match['score_team1'] = $match['score_team1'] === null
+            ? null
+            : (int) $match['score_team1'];
+        $match['score_team2'] = $match['score_team2'] === null
+            ? null
+            : (int) $match['score_team2'];
         $match['is_finished'] = (bool) $match['is_finished'];
         return $match;
+    }
+
+    private static function completeRoundWhenReady(int $roundId): void
+    {
+        $stmt = db()->prepare(
+            'SELECT COUNT(*) AS total,
+                    SUM(CASE WHEN ms.is_finished = 1 THEN 1 ELSE 0 END) AS finished
+             FROM matches m
+             LEFT JOIN match_scores ms ON ms.match_id = m.id
+             WHERE m.round_id = ?'
+        );
+        $stmt->execute([$roundId]);
+        $state = $stmt->fetch();
+
+        if (
+            (int) $state['total'] > 0
+            && (int) $state['total'] === (int) $state['finished']
+        ) {
+            $update = db()->prepare("UPDATE rounds SET status = 'completed' WHERE id = ?");
+            $update->execute([$roundId]);
+        }
     }
 }

@@ -38,6 +38,9 @@ final class PlayerService
         if ($name === '') {
             jsonError('Укажите имя игрока');
         }
+        if (mb_strlen($name) > 100) {
+            jsonError('Имя игрока не должно превышать 100 символов');
+        }
 
         $stmt = db()->prepare('SELECT COUNT(*) FROM players WHERE company_id = ? AND is_active = 1');
         $stmt->execute([$companyId]);
@@ -46,6 +49,20 @@ final class PlayerService
         }
 
         $telegram = self::normalizeTelegramStorage($input['telegram'] ?? null);
+
+        $inactiveStmt = db()->prepare(
+            'SELECT id FROM players WHERE company_id = ? AND name = ? AND is_active = 0 LIMIT 1'
+        );
+        $inactiveStmt->execute([$companyId, $name]);
+        $inactiveId = $inactiveStmt->fetchColumn();
+        if ($inactiveId !== false) {
+            $stmt = db()->prepare(
+                'UPDATE players SET is_active = 1, telegram = ? WHERE id = ?'
+            );
+            $stmt->execute([$telegram, (int) $inactiveId]);
+            self::invalidatePlannedRounds($companyId);
+            return self::find((int) $inactiveId);
+        }
 
         try {
             $stmt = db()->prepare(
@@ -59,7 +76,9 @@ final class PlayerService
             throw $e;
         }
 
-        return self::find((int) db()->lastInsertId());
+        $playerId = (int) db()->lastInsertId();
+        self::invalidatePlannedRounds($companyId);
+        return self::find($playerId);
     }
 
     public static function update(int $playerId, array $input): array
@@ -70,6 +89,9 @@ final class PlayerService
         $name = trim($input['name'] ?? $player['name']);
         if ($name === '') {
             jsonError('Укажите имя игрока');
+        }
+        if (mb_strlen($name) > 100) {
+            jsonError('Имя игрока не должно превышать 100 символов');
         }
 
         $telegram = array_key_exists('telegram', $input)
@@ -97,6 +119,7 @@ final class PlayerService
         if (CompanyService::isTournamentStarted((int) $player['company_id'])) {
             $stmt = db()->prepare('UPDATE players SET is_active = 0 WHERE id = ?');
             $stmt->execute([$playerId]);
+            self::invalidatePlannedRounds((int) $player['company_id']);
             return;
         }
 
@@ -137,13 +160,14 @@ final class PlayerService
             return null;
         }
         $value = trim($value);
-        if (preg_match('#t\.me/([A-Za-z0-9_]+)#', $value, $m)) {
+        if (preg_match('#^(?:https?://)?(?:www\.)?t\.me/([A-Za-z0-9_]{5,32})/?$#i', $value, $m)) {
             return '@' . $m[1];
         }
-        if (!str_starts_with($value, '@')) {
-            return '@' . ltrim($value, '@');
+        $username = ltrim($value, '@');
+        if (!preg_match('/^[A-Za-z0-9_]{5,32}$/', $username)) {
+            jsonError('Telegram должен содержать 5–32 латинских символа, цифры или _');
         }
-        return $value;
+        return '@' . $username;
     }
 
     private static function normalizeTelegramDisplay(?string $value): ?string
@@ -152,6 +176,14 @@ final class PlayerService
             return null;
         }
         return str_starts_with($value, '@') ? $value : '@' . $value;
+    }
+
+    private static function invalidatePlannedRounds(int $companyId): void
+    {
+        $stmt = db()->prepare(
+            "DELETE FROM rounds WHERE company_id = ? AND status = 'planned'"
+        );
+        $stmt->execute([$companyId]);
     }
 }
 

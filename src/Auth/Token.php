@@ -14,7 +14,7 @@ final class Token
         ], JSON_THROW_ON_ERROR);
 
         $encoded = self::base64UrlEncode($payload);
-        $signature = hash_hmac('sha256', $encoded, env('APP_SECRET', 'dev-secret'));
+        $signature = hash_hmac('sha256', $encoded, self::secret());
 
         return $encoded . '.' . $signature;
     }
@@ -26,7 +26,7 @@ final class Token
         }
 
         [$encoded, $signature] = explode('.', $token, 2);
-        $expected = hash_hmac('sha256', $encoded, env('APP_SECRET', 'dev-secret'));
+        $expected = hash_hmac('sha256', $encoded, self::secret());
         if (!hash_equals($expected, $signature)) {
             return null;
         }
@@ -63,5 +63,14 @@ final class Token
             $data .= str_repeat('=', 4 - $remainder);
         }
         return base64_decode(strtr($data, '-_', '+/')) ?: '';
+    }
+
+    private static function secret(): string
+    {
+        $secret = env('APP_SECRET');
+        if ($secret === null || strlen($secret) < 32) {
+            throw new RuntimeException('APP_SECRET должен содержать не менее 32 символов');
+        }
+        return $secret;
     }
 }

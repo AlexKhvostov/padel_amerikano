@@ -10,9 +10,6 @@ function appRoot(): string
 function defaultSettings(): array
 {
     return [
-        'score_limit' => 16,
-        'extra_point_on_tie' => true,
-        'extra_point_always' => false,
         'courts_count' => 1,
     ];
 }
@@ -46,7 +43,20 @@ function readJsonBody(): array
 
 function clientIp(): string
 {
-    return $_SERVER['HTTP_X_FORWARDED_FOR']
-        ?? $_SERVER['REMOTE_ADDR']
-        ?? '0.0.0.0';
+    $remote = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+    $trustedProxies = array_filter(array_map(
+        'trim',
+        explode(',', function_exists('env') ? (env('TRUSTED_PROXIES', '') ?? '') : '')
+    ));
+
+    if (
+        in_array($remote, $trustedProxies, true)
+        && isset($_SERVER['HTTP_X_FORWARDED_FOR'])
+    ) {
+        $forwarded = trim(explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'])[0]);
+        if (filter_var($forwarded, FILTER_VALIDATE_IP)) {
+            return $forwarded;
+        }
+    }
+    return $remote;
 }

@@ -1,0 +1,30 @@
+{
+    "name": "padel/amerikano",
+    "description": "Веб-сервис турниров Падел Американо",
+    "require": {
+        "php": "^8.2",
+        "ext-json": "*",
+        "ext-pdo": "*"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11.5"
+    },
+    "autoload": {
+        "classmap": [
+            "src/"
+        ]
+    },
+    "autoload-dev": {
+        "classmap": [
+            "tests/"
+        ]
+    },
+    "scripts": {
+        "test:php": "phpunit",
+        "test:frontend": "node tests/frontend-smoke.mjs",
+        "test": [
+            "@test:php",
+            "@test:frontend"
+        ]
+    }
+}

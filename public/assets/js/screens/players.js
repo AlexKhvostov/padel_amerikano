@@ -1,6 +1,6 @@
 import { players } from '../api.js';
 import { getSession } from '../storage.js';
-import { toast, initials, telegramLink, escapeHtml, confirmAction } from '../ui.js';
+import { toast, initials, telegramLink, escapeHtml, confirmAction, renderError } from '../ui.js';
 
 export async function renderPlayers(container) {
     const session = getSession();
@@ -9,32 +9,63 @@ export async function renderPlayers(container) {
     try {
         data = await players.list(session.id);
     } catch (e) {
-        container.innerHTML = `<div class="error-box">${escapeHtml(e.message)}</div>`;
+        renderError(container, e.message, () => renderPlayers(container));
         return;
     }
 
     container.innerHTML = `
-        <h1>Игроки</h1>
-        <div class="counter">Игроков: ${data.active_count} / ${data.max}</div>
+        <header class="page-header">
+            <div>
+                <span class="eyebrow">Состав турнира</span>
+                <h1>Игроки</h1>
+            </div>
+            <button class="header-action" id="show-add-player" aria-expanded="false">
+                <span aria-hidden="true">＋</span> Добавить
+            </button>
+        </header>
 
-        <div class="card">
-            <h2>Добавить игрока</h2>
+        <div class="info-strip">
+            <span>Активные игроки</span>
+            <strong>${data.active_count}<small> / ${data.max}</small></strong>
+        </div>
+
+        <div class="card add-player-card hidden" id="add-player-card">
+            <div class="section-heading">
+                <h2>Новый игрок</h2>
+                <p>Telegram можно добавить позже</p>
+            </div>
             <div class="field">
-                <label>Имя *</label>
+                <label for="player-name">Имя *</label>
                 <input id="player-name" placeholder="Иван Петров">
             </div>
             <div class="field">
-                <label>Telegram</label>
+                <label for="player-telegram">Telegram</label>
                 <input id="player-telegram" placeholder="@username">
             </div>
-            <button class="btn btn-primary" id="btn-add-player">Добавить</button>
+            <div class="button-row">
+                <button class="btn btn-ghost" id="cancel-add-player">Отмена</button>
+                <button class="btn btn-primary" id="btn-add-player">Добавить</button>
+            </div>
         </div>
 
-        <div id="players-list"></div>
+        <div id="players-list" class="player-list"></div>
     `;
 
     const listEl = container.querySelector('#players-list');
     renderList(listEl, data.players, session.id);
+
+    const addCard = container.querySelector('#add-player-card');
+    const showAddButton = container.querySelector('#show-add-player');
+    showAddButton.addEventListener('click', () => {
+        addCard.classList.toggle('hidden');
+        const expanded = !addCard.classList.contains('hidden');
+        showAddButton.setAttribute('aria-expanded', String(expanded));
+        if (expanded) container.querySelector('#player-name').focus();
+    });
+    container.querySelector('#cancel-add-player').addEventListener('click', () => {
+        addCard.classList.add('hidden');
+        showAddButton.setAttribute('aria-expanded', 'false');
+    });
 
     container.querySelector('#btn-add-player').addEventListener('click', async () => {
         try {
@@ -67,8 +98,8 @@ function renderList(el, items, companyId) {
                     <div class="name">${escapeHtml(p.name)}${!p.is_active ? ' (неактивен)' : ''}</div>
                     ${tg ? `<a href="${tg.href}" target="_blank" rel="noopener">${escapeHtml(tg.label)}</a>` : ''}
                     <div class="player-actions">
-                        <button data-edit="${p.id}">✏️ Редактировать</button>
-                        <button data-del="${p.id}">🗑️ Удалить</button>
+                        <button class="icon-action" data-edit="${p.id}" aria-label="Редактировать ${escapeHtml(p.name)}">✏️</button>
+                        <button class="icon-action danger" data-del="${p.id}" aria-label="Удалить ${escapeHtml(p.name)}">🗑️</button>
                     </div>
                 </div>
             </div>`;
@@ -101,6 +132,7 @@ function editPlayer(listEl, items, id, companyId) {
     if (!card) return;
 
     card.innerHTML = `
+        <div class="section-heading"><h2>Редактирование</h2><p>${escapeHtml(p.name)}</p></div>
         <div class="field"><label>Имя</label><input id="edit-name" value="${escapeHtml(p.name)}"></div>
         <div class="field"><label>Telegram</label><input id="edit-tg" value="${escapeHtml(p.telegram || '')}"></div>
         <button class="btn btn-primary" id="save-edit">Сохранить</button>

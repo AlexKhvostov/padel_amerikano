@@ -39,9 +39,15 @@ CREATE TABLE rounds (
     company_id   INT NOT NULL,
     round_number INT NOT NULL,
     bench_player_ids JSON NULL,
+    status       ENUM('planned', 'active', 'completed') NOT NULL DEFAULT 'planned',
+    active_company_id INT GENERATED ALWAYS AS (
+        CASE WHEN status = 'active' THEN company_id ELSE NULL END
+    ) VIRTUAL,
     created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE,
-    UNIQUE KEY uq_rounds_company_number (company_id, round_number)
+    UNIQUE KEY uq_rounds_company_number (company_id, round_number),
+    UNIQUE KEY uq_rounds_one_active (active_company_id),
+    INDEX idx_rounds_company_status (company_id, status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE matches (

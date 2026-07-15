@@ -6,39 +6,70 @@ export function renderHome(container, navigate) {
     let selectedCompany = null;
 
     container.innerHTML = `
-        <h1>Падел Американо</h1>
-        <p class="subtitle">Турнирный формат с ротацией партнёров</p>
-
-        <div class="card">
-            <h2>Создать компанию</h2>
-            <div class="field">
-                <label>Название</label>
-                <input id="create-name" placeholder="Клуб Ракетка" autocomplete="off">
-            </div>
-            <button class="btn btn-primary" id="btn-create">Создать компанию</button>
-        </div>
-
-        <div class="card">
-            <h2>Войти в компанию</h2>
-            <div class="field">
-                <label>Поиск по названию</label>
-                <input id="search-name" placeholder="Начните вводить..." autocomplete="off">
-            </div>
-            <ul id="search-results" class="search-results"></ul>
-            <div id="login-block" class="hidden">
-                <div class="field">
-                    <label>Пароль</label>
-                    <input id="login-password" inputmode="numeric" placeholder="••••" autocomplete="off">
+        <section class="auth-shell">
+            <div class="brand">
+                <div class="brand-mark" aria-hidden="true">A</div>
+                <div>
+                    <h1>Американо</h1>
+                    <p>Падел. Партнёры меняются — очки остаются.</p>
                 </div>
-                <button class="btn btn-primary" id="btn-login">Войти</button>
             </div>
-        </div>
+
+            <div class="segmented" role="tablist" aria-label="Вход или регистрация">
+                <button class="segment active" data-auth-tab="create" role="tab" aria-selected="true">Создать</button>
+                <button class="segment" data-auth-tab="login" role="tab" aria-selected="false">Войти</button>
+            </div>
+
+            <div class="auth-panel" id="create-panel">
+                <div class="section-heading">
+                    <h2>Новая компания</h2>
+                    <p>Получите код и пригласите участников</p>
+                </div>
+                <div class="field">
+                    <label for="create-name">Название компании</label>
+                    <input id="create-name" placeholder="Например, Клуб Ракетка" autocomplete="organization">
+                </div>
+                <button class="btn btn-primary" id="btn-create">Создать компанию</button>
+            </div>
+
+            <div class="auth-panel hidden" id="login-panel">
+                <div class="section-heading">
+                    <h2>Вход в турнир</h2>
+                    <p>Найдите компанию и введите код</p>
+                </div>
+                <div class="field">
+                    <label for="search-name">Название компании</label>
+                    <input id="search-name" placeholder="Начните вводить..." autocomplete="off">
+                </div>
+                <ul id="search-results" class="search-results"></ul>
+                <div id="login-block" class="hidden">
+                    <div class="field">
+                        <label for="login-password">Код доступа</label>
+                        <input id="login-password" inputmode="numeric" placeholder="4–6 цифр" autocomplete="one-time-code">
+                    </div>
+                    <button class="btn btn-primary" id="btn-login">Войти</button>
+                </div>
+            </div>
+        </section>
     `;
 
     const createName = container.querySelector('#create-name');
     const searchName = container.querySelector('#search-name');
     const searchResults = container.querySelector('#search-results');
     const loginBlock = container.querySelector('#login-block');
+
+    container.querySelectorAll('[data-auth-tab]').forEach((tab) => {
+        tab.addEventListener('click', () => {
+            const selected = tab.dataset.authTab;
+            container.querySelectorAll('[data-auth-tab]').forEach((item) => {
+                const active = item.dataset.authTab === selected;
+                item.classList.toggle('active', active);
+                item.setAttribute('aria-selected', String(active));
+            });
+            container.querySelector('#create-panel').classList.toggle('hidden', selected !== 'create');
+            container.querySelector('#login-panel').classList.toggle('hidden', selected !== 'login');
+        });
+    });
 
     container.querySelector('#btn-create').addEventListener('click', async () => {
         try {
@@ -98,15 +129,22 @@ export function renderHome(container, navigate) {
 
 function showCredentials(container, data, navigate) {
     container.innerHTML = `
-        <div class="card credentials">
-            <h2>Компания создана</h2>
-            <p class="subtitle">Сохраните данные для входа</p>
-            <div class="company-name">${escapeHtml(data.name)}</div>
-            <div>Пароль:</div>
-            <div class="password">${escapeHtml(data.password)}</div>
+        <section class="auth-shell">
+            <div class="brand compact">
+                <div class="brand-mark" aria-hidden="true">A</div>
+                <div><h1>Компания создана</h1><p>Сохраните код доступа</p></div>
+            </div>
+            <div class="credentials card">
+                <span class="eyebrow">Компания</span>
+                <div class="company-name">${escapeHtml(data.name)}</div>
+                <span class="eyebrow">Код доступа</span>
+                <div class="password">${escapeHtml(data.password)}</div>
+            </div>
+            <div class="button-stack">
             <button class="btn btn-secondary" id="btn-share">Поделиться</button>
             <button class="btn btn-primary" id="btn-enter">Перейти в турнир</button>
-        </div>
+            </div>
+        </section>
     `;
 
     container.querySelector('#btn-share').addEventListener('click', async () => {

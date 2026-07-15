@@ -15,12 +15,20 @@ export async function api(path, options = {}) {
 
     showLoader();
     try {
-        const res = await fetch(BASE + path, { ...options, headers });
+        let res;
+        try {
+            res = await fetch(BASE + path, { ...options, headers });
+        } catch {
+            throw new Error('Нет соединения с сервером. Проверьте интернет и повторите.');
+        }
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
             const err = new Error(data.error || 'Ошибка запроса');
             err.status = res.status;
             err.data = data;
+            if (res.status === 401 || res.status === 403) {
+                window.dispatchEvent(new CustomEvent('session-expired'));
+            }
             throw err;
         }
         return data;
@@ -54,10 +62,14 @@ export const rounds = {
 };
 
 export const matches = {
-    saveScore: (id, score_team1, score_team2) =>
+    saveScore: (id, score_team1, score_team2, confirmInvalidTotal = false) =>
         api(`/matches/${id}/score`, {
             method: 'PUT',
-            body: JSON.stringify({ score_team1, score_team2 }),
+            body: JSON.stringify({
+                score_team1,
+                score_team2,
+                confirm_invalid_total: confirmInvalidTotal,
+            }),
         }),
 };
 

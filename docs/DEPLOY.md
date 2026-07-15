@@ -4,7 +4,7 @@
 
 | Параметр | Значение |
 |----------|----------|
-| Домен | http://padel.ballaball.xyz/ |
+| Домен | https://padel.ballaball.xyz/ |
 | PHP | 8.2, mod_php (Apache) |
 | MySQL | 8.0 |
 | Хост БД | `mysql80.hostland.ru:3308` |
@@ -22,7 +22,7 @@
 В корне проекта (рядом с `config/`) создайте `.env`:
 
 ```env
-APP_URL=http://padel.ballaball.xyz
+APP_URL=https://padel.ballaball.xyz
 APP_ENV=production
 APP_DEBUG=false
 
@@ -32,21 +32,24 @@ DB_NAME=host1708875_padelbd
 DB_USER=host1708875_upadel
 DB_PASSWORD=ваш_пароль
 
-APP_SECRET=случайная_длинная_строка
+APP_SECRET=случайная_строка_не_короче_32_символов
 ```
 
 Файл `.env` не хранится в git.
 
 ## 3. База данных
 
-В phpMyAdmin (Hostland) выполните скрипт `sql/schema.sql` в базе `host1708875_padelbd`.
+Для новой базы выполните `sql/schema.sql`.
+
+Если старая схема уже установлена, выполните миграцию
+`sql/migrations/002_round_schedule_status.sql`.
 
 ## 4. Проверка
 
 Откройте в браузере:
 
-- http://padel.ballaball.xyz/ — главный экран
-- http://padel.ballaball.xyz/api/health — статус API и подключения к БД
+- https://padel.ballaball.xyz/ — главный экран
+- https://padel.ballaball.xyz/api/health — статус API и подключения к БД
 
 Ожидаемый ответ health:
 
@@ -58,3 +61,12 @@ APP_SECRET=случайная_длинная_строка
 
 - PHP должен иметь доступ на чтение `.env` и всех файлов проекта
 - Запись на диск не требуется (кроме логов хостинга)
+
+## 6. Обязательные production-проверки
+
+1. Включите бесплатный TLS-сертификат для домена в панели Hostland.
+2. Настройте перенаправление HTTP → HTTPS в панели хостинга.
+3. Убедитесь, что `APP_DEBUG=false`.
+4. Вызовите защищённый API из приложения и убедитесь, что Apache передаёт
+   заголовок `Authorization` в PHP (правило уже добавлено в `public/.htaccess`).
+5. Не публикуйте `.env` и не размещайте корень проекта внутри document root.

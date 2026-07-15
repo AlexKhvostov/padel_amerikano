@@ -13,6 +13,7 @@ final class LoginGuard
     public static function assertAllowed(): void
     {
         $ip = clientIp();
+        db()->exec('DELETE FROM login_attempts WHERE attempted_at < DATE_SUB(NOW(), INTERVAL 1 DAY)');
         $stmt = db()->prepare(
             'SELECT COUNT(*) FROM login_attempts
              WHERE ip_address = ? AND attempted_at > DATE_SUB(NOW(), INTERVAL ? MINUTE)'
@@ -26,6 +27,12 @@ final class LoginGuard
     public static function recordFailure(): void
     {
         $stmt = db()->prepare('INSERT INTO login_attempts (ip_address) VALUES (?)');
+        $stmt->execute([clientIp()]);
+    }
+
+    public static function recordSuccess(): void
+    {
+        $stmt = db()->prepare('DELETE FROM login_attempts WHERE ip_address = ?');
         $stmt->execute([clientIp()]);
     }
 }

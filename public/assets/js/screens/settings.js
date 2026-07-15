@@ -1,6 +1,6 @@
 import { companies } from '../api.js';
-import { getSession, clearSession } from '../storage.js';
-import { toast, escapeHtml, confirmAction } from '../ui.js';
+import { getSession, setSession, clearSession } from '../storage.js';
+import { toast, escapeHtml, confirmAction, renderError } from '../ui.js';
 
 export async function renderSettings(container, navigate) {
     const session = getSession();
@@ -9,7 +9,7 @@ export async function renderSettings(container, navigate) {
     try {
         company = await companies.get(session.id);
     } catch (e) {
-        container.innerHTML = `<div class="error-box">${escapeHtml(e.message)}</div>`;
+        renderError(container, e.message, () => renderSettings(container, navigate));
         return;
     }
 
@@ -17,56 +17,48 @@ export async function renderSettings(container, navigate) {
     const locked = company.tournament_started;
 
     container.innerHTML = `
-        <h1>Настройки</h1>
-        <p class="subtitle">${escapeHtml(company.name)}</p>
-        ${locked ? '<div class="error-box">Турнир начат. Изменение настроек недоступно</div>' : ''}
-
-        <div class="card settings-group">
-            <h2>Счёт до</h2>
-            <label class="radio-row">
-                <input type="radio" name="score_limit" value="16" ${s.score_limit === 16 ? 'checked' : ''} ${locked ? 'disabled' : ''}>
-                До 16 очков
-            </label>
-            <label class="radio-row">
-                <input type="radio" name="score_limit" value="24" ${s.score_limit === 24 ? 'checked' : ''} ${locked ? 'disabled' : ''}>
-                До 24 очков
-            </label>
-        </div>
-
-        <div class="card settings-group">
-            <label class="check-row">
-                <input type="checkbox" id="extra_tie" ${s.extra_point_on_tie ? 'checked' : ''} ${locked ? 'disabled' : ''}>
-                Дополнительный розыгрыш (+1) при равном счёте
-            </label>
-            <label class="check-row">
-                <input type="checkbox" id="extra_always" ${s.extra_point_always ? 'checked' : ''} ${locked ? 'disabled' : ''}>
-                +1 всегда обязательный
-            </label>
-        </div>
-
-        <div class="card settings-group">
-            <div class="field">
-                <label>Количество кортов</label>
-                <input type="number" id="courts_count" min="1" max="10" value="${s.courts_count}" ${locked ? 'disabled' : ''}>
+        <header class="page-header">
+            <div>
+                <span class="eyebrow">${escapeHtml(company.name)}</span>
+                <h1>Настройки</h1>
             </div>
+            ${locked ? '<span class="status-pill locked">Заблокировано</span>' : ''}
+        </header>
+        ${locked ? '<div class="notice compact">Турнир уже начат. Параметры защищены от изменений.</div>' : ''}
+
+        <div class="card setting-card">
+            <div class="setting-icon">#</div>
+            <div>
+                <h2>Счёт матча</h2>
+                <p>Свободный ввод. Суммы 16, 17, 24 и 25 — стандартные.</p>
+            </div>
+        </div>
+
+        <div class="card setting-card courts-setting">
+            <div class="setting-icon">▦</div>
+            <div class="setting-main">
+                <label for="courts_count">Количество кортов</label>
+                <p>Одновременные матчи в одном раунде</p>
+            </div>
+            <input type="number" id="courts_count" min="1" max="10" value="${s.courts_count}" ${locked ? 'disabled' : ''}>
         </div>
 
         ${locked ? '' : '<button class="btn btn-primary" id="btn-save-settings">Сохранить настройки</button>'}
 
-        <button class="btn btn-danger" id="btn-reset">Сбросить турнир</button>
-        <button class="btn btn-secondary" id="btn-logout">Выйти из компании</button>
+        <div class="settings-actions">
+            <button class="list-action danger" id="btn-reset"><span>Сбросить турнир</span><b>Все результаты будут удалены</b></button>
+            <button class="list-action" id="btn-logout"><span>Выйти из компании</span><b>Вернуться на экран входа</b></button>
+        </div>
     `;
 
     container.querySelector('#btn-save-settings')?.addEventListener('click', async () => {
         try {
             const payload = {
-                score_limit: Number(container.querySelector('input[name="score_limit"]:checked').value),
-                extra_point_on_tie: container.querySelector('#extra_tie').checked,
-                extra_point_always: container.querySelector('#extra_always').checked,
                 courts_count: Number(container.querySelector('#courts_count').value),
             };
             const { settings } = await companies.updateSettings(session.id, payload);
-            Object.assign(session.settings, settings);
+            session.settings = settings;
+            setSession(session);
             toast('Настройки сохранены');
         } catch (e) {
             toast(e.message, true);

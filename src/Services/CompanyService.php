@@ -69,6 +69,7 @@ final class CompanyService
             jsonError('Неверное название компании или пароль', 401);
         }
 
+        LoginGuard::recordSuccess();
         $settings = json_decode($company['settings'], true) ?: defaultSettings();
 
         return [
@@ -99,16 +100,7 @@ final class CompanyService
             jsonError('Турнир начат. Изменение настроек недоступно');
         }
 
-        $settings = self::settings($companyId);
-        if (isset($input['score_limit']) && in_array((int) $input['score_limit'], [16, 24], true)) {
-            $settings['score_limit'] = (int) $input['score_limit'];
-        }
-        if (isset($input['extra_point_on_tie'])) {
-            $settings['extra_point_on_tie'] = (bool) $input['extra_point_on_tie'];
-        }
-        if (isset($input['extra_point_always'])) {
-            $settings['extra_point_always'] = (bool) $input['extra_point_always'];
-        }
+        $settings = defaultSettings();
         if (isset($input['courts_count'])) {
             $courts = max(1, min(10, (int) $input['courts_count']));
             $settings['courts_count'] = $courts;

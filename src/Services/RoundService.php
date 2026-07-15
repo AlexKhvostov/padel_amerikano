@@ -13,101 +13,204 @@ final class RoundService
         CompanyService::assertAccess($companyId);
 
         $stmt = db()->prepare(
-            'SELECT id, round_number, bench_player_ids, created_at
-             FROM rounds WHERE company_id = ? ORDER BY round_number ASC'
+            "SELECT id, round_number, bench_player_ids, status, created_at
+             FROM rounds
+             WHERE company_id = ? AND status <> 'planned'
+             ORDER BY round_number ASC"
         );
         $stmt->execute([$companyId]);
         $rounds = $stmt->fetchAll();
-
         $playerMap = self::playerMap($companyId);
 
         foreach ($rounds as &$round) {
-            $round['id'] = (int) $round['id'];
-            $round['round_number'] = (int) $round['round_number'];
-            $benchIds = json_decode($round['bench_player_ids'] ?? '[]', true) ?: [];
-            $round['bench'] = array_map(fn($id) => $playerMap[$id] ?? ['id' => $id, 'name' => '?'], $benchIds);
-            unset($round['bench_player_ids']);
-            $round['matches'] = self::matchesForRound((int) $round['id'], $playerMap);
-            $round['is_complete'] = self::isRoundComplete($round['matches']);
+            $round = self::hydrateRound($round, $playerMap);
         }
 
-        return ['rounds' => $rounds];
+        $schedule = $rounds === []
+            ? self::previewSchedule($companyId)
+            : self::scheduleSummary($companyId);
+
+        return [
+            'rounds' => $rounds,
+            'schedule' => $schedule,
+        ];
     }
 
     public static function createNext(int $companyId): array
     {
         CompanyService::assertAccess($companyId);
-
-        $settings = CompanyService::settings($companyId);
-        $playerIds = PlayerService::activeIds($companyId);
-
-        $stmt = db()->prepare('SELECT MAX(round_number) FROM rounds WHERE company_id = ?');
-        $stmt->execute([$companyId]);
-        $lastNumber = (int) $stmt->fetchColumn();
-
-        if ($lastNumber > 0) {
-            $prev = self::list($companyId);
-            $lastRound = $prev['rounds'][count($prev['rounds']) - 1] ?? null;
-            if ($lastRound && !$lastRound['is_complete']) {
-                jsonError('Завершите все матчи текущего раунда перед созданием следующего');
-            }
-        }
-
-        $generated = RoundGenerator::generate(
-            $playerIds,
-            (int) $settings['courts_count'],
-            $companyId
-        );
-
-        $roundNumber = $lastNumber + 1;
         $pdo = db();
         $pdo->beginTransaction();
+
         try {
-            $stmt = $pdo->prepare(
-                'INSERT INTO rounds (company_id, round_number, bench_player_ids) VALUES (?, ?, ?)'
+            $companyStmt = $pdo->prepare('SELECT settings FROM companies WHERE id = ? FOR UPDATE');
+            $companyStmt->execute([$companyId]);
+            $company = $companyStmt->fetch();
+            if (!$company) {
+                $pdo->rollBack();
+                jsonError('Компания не найдена', 404);
+            }
+
+            $activeStmt = $pdo->prepare(
+                "SELECT id FROM rounds
+                 WHERE company_id = ? AND status = 'active'
+                 ORDER BY round_number ASC LIMIT 1 FOR UPDATE"
+            );
+            $activeStmt->execute([$companyId]);
+            $activeRoundId = $activeStmt->fetchColumn();
+
+            if ($activeRoundId !== false) {
+                if (!self::isRoundCompleteById((int) $activeRoundId)) {
+                    $pdo->rollBack();
+                    jsonError('Завершите все матчи текущего раунда перед созданием следующего');
+                }
+                $stmt = $pdo->prepare("UPDATE rounds SET status = 'completed' WHERE id = ?");
+                $stmt->execute([(int) $activeRoundId]);
+            }
+
+            $plannedStmt = $pdo->prepare(
+                "SELECT id FROM rounds
+                 WHERE company_id = ? AND status = 'planned'
+                 ORDER BY round_number ASC LIMIT 1 FOR UPDATE"
+            );
+            $plannedStmt->execute([$companyId]);
+            $nextId = $plannedStmt->fetchColumn();
+
+            if ($nextId === false) {
+                if (count(PlayerService::activeIds($companyId)) < 4) {
+                    $pdo->rollBack();
+                    jsonError('Минимум 4 активных игрока для создания раунда');
+                }
+                self::appendMissingSchedule(
+                    $companyId,
+                    json_decode($company['settings'], true) ?: defaultSettings()
+                );
+                $plannedStmt->execute([$companyId]);
+                $nextId = $plannedStmt->fetchColumn();
+            }
+
+            if ($nextId === false) {
+                $pdo->commit();
+                jsonError('Полная ротация завершена', 409);
+            }
+
+            $stmt = $pdo->prepare("UPDATE rounds SET status = 'active' WHERE id = ?");
+            $stmt->execute([(int) $nextId]);
+            $pdo->commit();
+
+            return self::findPublishedRound($companyId, (int) $nextId);
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $e;
+        }
+    }
+
+    /**
+     * Удаляет будущий план. Текущий и завершённые раунды не меняются.
+     */
+    public static function invalidatePlanned(int $companyId): void
+    {
+        $stmt = db()->prepare("DELETE FROM rounds WHERE company_id = ? AND status = 'planned'");
+        $stmt->execute([$companyId]);
+    }
+
+    /** @param array<string, mixed> $settings */
+    private static function appendMissingSchedule(int $companyId, array $settings): void
+    {
+        $playerIds = PlayerService::activeIds($companyId);
+        if (count($playerIds) < 4) {
+            throw new InvalidArgumentException(
+                'Минимум 4 активных игрока для создания раунда'
+            );
+        }
+
+        $history = self::partnerHistory($companyId);
+        $schedule = RoundGenerator::generateSchedule(
+            $playerIds,
+            max(1, (int) ($settings['courts_count'] ?? 1)),
+            $history,
+            self::opponentHistory($companyId)
+        );
+
+        if ($schedule['rounds'] === []) {
+            return;
+        }
+
+        $stmt = db()->prepare('SELECT COALESCE(MAX(round_number), 0) FROM rounds WHERE company_id = ?');
+        $stmt->execute([$companyId]);
+        $roundNumber = (int) $stmt->fetchColumn();
+
+        foreach ($schedule['rounds'] as $round) {
+            $roundNumber++;
+            $stmt = db()->prepare(
+                "INSERT INTO rounds
+                    (company_id, round_number, bench_player_ids, status)
+                 VALUES (?, ?, ?, 'planned')"
             );
             $stmt->execute([
                 $companyId,
                 $roundNumber,
-                json_encode($generated['bench']),
+                json_encode($round['bench'], JSON_THROW_ON_ERROR),
             ]);
-            $roundId = (int) $pdo->lastInsertId();
+            $roundId = (int) db()->lastInsertId();
 
-            foreach ($generated['matches'] as $court => $match) {
-                $stmt = $pdo->prepare(
+            foreach ($round['matches'] as $court => $match) {
+                $stmt = db()->prepare(
                     'INSERT INTO matches (round_id, court_number) VALUES (?, ?)'
                 );
                 $stmt->execute([$roundId, $court]);
-                $matchId = (int) $pdo->lastInsertId();
+                $matchId = (int) db()->lastInsertId();
 
-                $stmt = $pdo->prepare(
+                $playerStmt = db()->prepare(
                     'INSERT INTO match_players (match_id, player_id, team) VALUES (?, ?, ?)'
                 );
-                foreach ($match['team1'] as $pid) {
-                    $stmt->execute([$matchId, $pid, 1]);
+                foreach ($match['team1'] as $playerId) {
+                    $playerStmt->execute([$matchId, $playerId, 1]);
                 }
-                foreach ($match['team2'] as $pid) {
-                    $stmt->execute([$matchId, $pid, 2]);
+                foreach ($match['team2'] as $playerId) {
+                    $playerStmt->execute([$matchId, $playerId, 2]);
                 }
 
-                $stmt2 = $pdo->prepare('INSERT INTO match_scores (match_id) VALUES (?)');
-                $stmt2->execute([$matchId]);
+                $scoreStmt = db()->prepare('INSERT INTO match_scores (match_id) VALUES (?)');
+                $scoreStmt->execute([$matchId]);
             }
-
-            $pdo->commit();
-        } catch (Throwable $e) {
-            $pdo->rollBack();
-            throw $e;
         }
-
-        $result = self::list($companyId);
-        $newRound = $result['rounds'][count($result['rounds']) - 1];
-        if ($generated['warning']) {
-            $newRound['warning'] = $generated['warning'];
-        }
-        return $newRound;
     }
 
+    /** @param array<string, mixed> $round @param array<int, array<string, mixed>> $playerMap */
+    private static function hydrateRound(array $round, array $playerMap): array
+    {
+        $round['id'] = (int) $round['id'];
+        $round['round_number'] = (int) $round['round_number'];
+        $benchIds = json_decode($round['bench_player_ids'] ?? '[]', true) ?: [];
+        $round['bench'] = array_map(
+            fn($id) => $playerMap[$id] ?? ['id' => (int) $id, 'name' => '?'],
+            $benchIds
+        );
+        unset($round['bench_player_ids']);
+        $round['matches'] = self::matchesForRound((int) $round['id'], $playerMap);
+        $round['is_complete'] = self::isRoundComplete($round['matches']);
+        return $round;
+    }
+
+    private static function findPublishedRound(int $companyId, int $roundId): array
+    {
+        $stmt = db()->prepare(
+            "SELECT id, round_number, bench_player_ids, status, created_at
+             FROM rounds
+             WHERE id = ? AND company_id = ? AND status <> 'planned'"
+        );
+        $stmt->execute([$roundId, $companyId]);
+        $round = $stmt->fetch();
+        if (!$round) {
+            jsonError('Раунд не найден', 404);
+        }
+        return self::hydrateRound($round, self::playerMap($companyId));
+    }
+
+    /** @param array<int, array<string, mixed>> $playerMap */
     private static function matchesForRound(int $roundId, array $playerMap): array
     {
         $stmt = db()->prepare(
@@ -123,6 +226,8 @@ final class RoundService
         foreach ($matches as &$match) {
             $match['id'] = (int) $match['id'];
             $match['court_number'] = (int) $match['court_number'];
+            $match['score_team1'] = $match['score_team1'] === null ? null : (int) $match['score_team1'];
+            $match['score_team2'] = $match['score_team2'] === null ? null : (int) $match['score_team2'];
             $match['is_finished'] = (bool) $match['is_finished'];
             $match['teams'] = self::teamsForMatch((int) $match['id'], $playerMap);
         }
@@ -130,6 +235,7 @@ final class RoundService
         return $matches;
     }
 
+    /** @param array<int, array<string, mixed>> $playerMap */
     private static function teamsForMatch(int $matchId, array $playerMap): array
     {
         $stmt = db()->prepare(
@@ -138,28 +244,44 @@ final class RoundService
         $stmt->execute([$matchId]);
         $teams = [1 => [], 2 => []];
         while ($row = $stmt->fetch()) {
-            $pid = (int) $row['player_id'];
-            $teams[(int) $row['team']][] = $playerMap[$pid] ?? ['id' => $pid, 'name' => '?'];
+            $playerId = (int) $row['player_id'];
+            $teams[(int) $row['team']][] = $playerMap[$playerId]
+                ?? ['id' => $playerId, 'name' => '?'];
         }
         return $teams;
     }
 
+    /** @param array<int, array<string, mixed>> $matches */
     private static function isRoundComplete(array $matches): bool
     {
-        if ($matches === []) {
-            return false;
-        }
-        foreach ($matches as $m) {
-            if (!$m['is_finished']) {
-                return false;
-            }
-        }
-        return true;
+        return $matches !== []
+            && array_reduce(
+                $matches,
+                fn(bool $complete, array $match): bool => $complete && $match['is_finished'],
+                true
+            );
     }
 
+    private static function isRoundCompleteById(int $roundId): bool
+    {
+        $stmt = db()->prepare(
+            'SELECT COUNT(*) AS total,
+                    SUM(CASE WHEN ms.is_finished = 1 THEN 1 ELSE 0 END) AS finished
+             FROM matches m
+             LEFT JOIN match_scores ms ON ms.match_id = m.id
+             WHERE m.round_id = ?'
+        );
+        $stmt->execute([$roundId]);
+        $row = $stmt->fetch();
+        return (int) $row['total'] > 0 && (int) $row['total'] === (int) $row['finished'];
+    }
+
+    /** @return array<int, array<string, mixed>> */
     private static function playerMap(int $companyId): array
     {
-        $stmt = db()->prepare('SELECT id, name, telegram, is_active FROM players WHERE company_id = ?');
+        $stmt = db()->prepare(
+            'SELECT id, name, telegram, is_active FROM players WHERE company_id = ?'
+        );
         $stmt->execute([$companyId]);
         $map = [];
         while ($row = $stmt->fetch()) {
@@ -171,5 +293,143 @@ final class RoundService
             ];
         }
         return $map;
+    }
+
+    /** @return array<string, int> */
+    private static function partnerHistory(int $companyId): array
+    {
+        $stmt = db()->prepare(
+            "SELECT mp.match_id, mp.player_id, mp.team
+             FROM match_players mp
+             JOIN matches m ON m.id = mp.match_id
+             JOIN rounds r ON r.id = m.round_id
+             WHERE r.company_id = ? AND r.status IN ('active', 'completed')
+             ORDER BY mp.match_id, mp.team"
+        );
+        $stmt->execute([$companyId]);
+        $matches = [];
+        while ($row = $stmt->fetch()) {
+            $matches[(int) $row['match_id']][(int) $row['team']][] = (int) $row['player_id'];
+        }
+
+        $history = [];
+        foreach ($matches as $teams) {
+            foreach ($teams as $players) {
+                if (count($players) !== 2) {
+                    continue;
+                }
+                sort($players);
+                $key = $players[0] . ':' . $players[1];
+                $history[$key] = ($history[$key] ?? 0) + 1;
+            }
+        }
+        return $history;
+    }
+
+    /** @return array<string, int> */
+    private static function opponentHistory(int $companyId): array
+    {
+        $stmt = db()->prepare(
+            "SELECT mp.match_id, mp.player_id, mp.team
+             FROM match_players mp
+             JOIN matches m ON m.id = mp.match_id
+             JOIN rounds r ON r.id = m.round_id
+             WHERE r.company_id = ? AND r.status IN ('active', 'completed')
+             ORDER BY mp.match_id, mp.team"
+        );
+        $stmt->execute([$companyId]);
+        $matches = [];
+        while ($row = $stmt->fetch()) {
+            $matches[(int) $row['match_id']][(int) $row['team']][] = (int) $row['player_id'];
+        }
+
+        $history = [];
+        foreach ($matches as $teams) {
+            foreach ($teams[1] ?? [] as $a) {
+                foreach ($teams[2] ?? [] as $b) {
+                    $key = min($a, $b) . ':' . max($a, $b);
+                    $history[$key] = ($history[$key] ?? 0) + 1;
+                }
+            }
+        }
+        return $history;
+    }
+
+    private static function scheduleSummary(int $companyId): array
+    {
+        $stmt = db()->prepare(
+            "SELECT COUNT(DISTINCT r.id) AS total_rounds,
+                    COUNT(m.id) AS total_matches,
+                    SUM(CASE WHEN r.status = 'completed' THEN 1 ELSE 0 END) AS completed_rows,
+                    SUM(CASE WHEN r.status = 'planned' THEN 1 ELSE 0 END) AS planned_rows
+             FROM rounds r
+             LEFT JOIN matches m ON m.round_id = r.id
+             WHERE r.company_id = ?"
+        );
+        $stmt->execute([$companyId]);
+        $row = $stmt->fetch();
+
+        $roundStmt = db()->prepare(
+            "SELECT
+                SUM(status = 'completed') AS completed_rounds,
+                SUM(status = 'planned') AS planned_rounds
+             FROM rounds WHERE company_id = ?"
+        );
+        $roundStmt->execute([$companyId]);
+        $roundCounts = $roundStmt->fetch();
+        $activeIds = PlayerService::activeIds($companyId);
+        $activeLookup = array_fill_keys($activeIds, true);
+        $coveredPairs = 0;
+        foreach (self::partnerHistory($companyId) as $key => $count) {
+            [$a, $b] = array_map('intval', explode(':', $key));
+            if ($count > 0 && isset($activeLookup[$a], $activeLookup[$b])) {
+                $coveredPairs++;
+            }
+        }
+        $totalPairs = intdiv(count($activeIds) * (count($activeIds) - 1), 2);
+
+        return [
+            'total_rounds' => (int) ($row['total_rounds'] ?? 0),
+            'total_matches' => (int) ($row['total_matches'] ?? 0),
+            'completed_rounds' => (int) ($roundCounts['completed_rounds'] ?? 0),
+            'planned_rounds' => (int) ($roundCounts['planned_rounds'] ?? 0),
+            'covered_partnerships' => $coveredPairs,
+            'total_partnerships' => $totalPairs,
+            'rotation_complete' => $totalPairs > 0 && $coveredPairs >= $totalPairs,
+        ];
+    }
+
+    private static function previewSchedule(int $companyId): array
+    {
+        $playerIds = PlayerService::activeIds($companyId);
+        if (count($playerIds) < 4) {
+            return [
+                'preview' => true,
+                'total_rounds' => 0,
+                'total_matches' => 0,
+                'minimum_players_required' => 4,
+            ];
+        }
+
+        $settings = CompanyService::settings($companyId);
+        $schedule = RoundGenerator::generateSchedule(
+            $playerIds,
+            max(1, (int) ($settings['courts_count'] ?? 1))
+        );
+        $games = array_values($schedule['games_per_player']);
+
+        return [
+            'preview' => true,
+            'total_rounds' => count($schedule['rounds']),
+            'total_matches' => $schedule['total_matches'],
+            'completed_rounds' => 0,
+            'planned_rounds' => count($schedule['rounds']),
+            'covered_partnerships' => 0,
+            'total_partnerships' => intdiv(count($playerIds) * (count($playerIds) - 1), 2),
+            'rotation_complete' => false,
+            'minimum_games_per_player' => min($games),
+            'maximum_games_per_player' => max($games),
+            'repeated_partnerships' => $schedule['repeated_partnerships'],
+        ];
     }
 }

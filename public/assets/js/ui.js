@@ -2,13 +2,17 @@ let loadingCount = 0;
 
 export function showLoader() {
     loadingCount++;
-    document.getElementById('loader')?.classList.remove('hidden');
+    const loader = document.getElementById('loader');
+    loader?.classList.remove('hidden');
+    loader?.setAttribute('aria-hidden', 'false');
 }
 
 export function hideLoader() {
     loadingCount = Math.max(0, loadingCount - 1);
     if (loadingCount === 0) {
-        document.getElementById('loader')?.classList.add('hidden');
+        const loader = document.getElementById('loader');
+        loader?.classList.add('hidden');
+        loader?.setAttribute('aria-hidden', 'true');
     }
 }
 
@@ -38,6 +42,14 @@ export function telegramLink(handle) {
 
 export function confirmAction(message) {
     return window.confirm(message);
+}
+
+export function renderError(container, message, onRetry) {
+    container.innerHTML = `
+        <div class="error-box">${escapeHtml(message)}</div>
+        <button class="btn btn-secondary" id="btn-retry">Повторить</button>
+    `;
+    container.querySelector('#btn-retry')?.addEventListener('click', onRetry);
 }
 
 export function escapeHtml(str) {

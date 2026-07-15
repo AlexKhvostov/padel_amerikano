@@ -1,0 +1,19 @@
+# Конфигурация и секреты
+.env
+config/local.php
+
+# PHP
+/vendor/
+composer.phar
+
+# IDE и ОС
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Логи и кэш
+*.log
+/cache/
+/storage/

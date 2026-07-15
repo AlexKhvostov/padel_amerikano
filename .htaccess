@@ -1,0 +1,6 @@
+# Если document root указывает на корень репозитория (не на public/)
+RewriteEngine On
+RewriteRule ^api/(.*)$ public/api/index.php [QSA,L]
+RewriteRule ^assets/(.*)$ public/assets/$1 [L]
+RewriteRule ^$ public/index.php [L]
+RewriteRule ^((?!public/).*)$ public/$1 [L]

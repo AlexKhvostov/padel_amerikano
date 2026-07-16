@@ -1,6 +1,7 @@
 import { rounds, matches } from '../api.js';
 import { getSession } from '../storage.js';
 import { toast, escapeHtml, renderError, confirmAction } from '../ui.js';
+import { showTournamentRules } from '../tournament-rules.js';
 
 export async function renderRounds(container, navigate = null) {
     const session = getSession();
@@ -69,6 +70,9 @@ function renderRoundsContent(container, data, session, canEdit, reload, setEditi
                 <h1>Раунды</h1>
             </div>
             <div class="round-page-actions">
+                <button class="round-settings-icon round-info-icon" id="btn-tournament-rules" aria-label="Правила турнира" title="Правила турнира">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/></svg>
+                </button>
                 ${
                     canEdit
                         ? `<button class="round-settings-icon" id="btn-tournament-settings" aria-label="Настройки турнира" title="Настройки турнира">
@@ -154,6 +158,9 @@ function renderRoundsContent(container, data, session, canEdit, reload, setEditi
     });
     container.querySelector('#btn-tournament-settings')?.addEventListener('click', () => {
         navigate?.('tournament-settings');
+    });
+    container.querySelector('#btn-tournament-rules').addEventListener('click', () => {
+        showTournamentRules();
     });
 
     bindScheduleDialog(container, session.tournamentId);

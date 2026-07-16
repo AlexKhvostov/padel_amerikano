@@ -1,6 +1,7 @@
 import { players, tournaments } from '../api.js';
 import { getSession, setActiveTournament } from '../storage.js';
 import { escapeHtml, renderError, toast } from '../ui.js';
+import { showTournamentRules } from '../tournament-rules.js';
 
 export async function renderTournamentCreate(container, navigate) {
     const session = getSession();
@@ -87,6 +88,7 @@ export async function renderTournamentCreate(container, navigate) {
             });
             setActiveTournament(tournament);
             toast('Турнир создан');
+            await showTournamentRules({ afterCreation: true });
             navigate('rounds');
         } catch (error) {
             toast(error.message, true);

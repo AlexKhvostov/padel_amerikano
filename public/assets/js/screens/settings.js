@@ -95,16 +95,17 @@ export async function renderSettings(container, navigate) {
             </div>
         </form>
 
-        <div class="settings-actions">
-            <button class="list-action" id="btn-logout"><span>Выйти из компании</span><b>Вернуться на экран входа</b></button>
-        </div>
-
         <div class="company-danger-zone">
-            <button class="list-action danger delete-company" id="btn-delete-company">
+            <button class="company-logout-button" id="btn-logout">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M10 17l5-5-5-5M15 12H3M14 3h5a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-5"/>
+                </svg>
+                <span><strong>Выйти из компании</strong><small>Вернуться к списку компаний</small></span>
+            </button>
+            <button class="company-delete-icon" id="btn-delete-company" aria-label="Удалить компанию">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/>
                 </svg>
-                <span><strong>Удалить компанию</strong><b>Компания исчезнет из сервиса без возможности возврата</b></span>
             </button>
         </div>
     `;

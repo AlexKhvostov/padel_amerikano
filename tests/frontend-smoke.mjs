@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 const root = new URL('../', import.meta.url);
 const [
     index, css, home, games, rounds, rating, players, settings, invite,
-    app, api, storage, tournamentHub, tournamentCreate, tournamentSettings,
+    app, api, storage, tournamentHub, tournamentCreate, tournamentSettings, tournamentRules,
     schema, migration, activityMigration, apiRouter, companyService, tournamentService,
 ] = await Promise.all([
     readFile(new URL('public/index.php', root), 'utf8'),
@@ -22,6 +22,7 @@ const [
     readFile(new URL('public/assets/js/screens/tournaments.js', root), 'utf8'),
     readFile(new URL('public/assets/js/screens/tournament-create.js', root), 'utf8'),
     readFile(new URL('public/assets/js/screens/tournament-settings.js', root), 'utf8'),
+    readFile(new URL('public/assets/js/tournament-rules.js', root), 'utf8'),
     readFile(new URL('sql/schema.sql', root), 'utf8'),
     readFile(new URL('sql/migrations/007_multi_tournament.sql', root), 'utf8'),
     readFile(new URL('sql/migrations/008_tournament_activity.sql', root), 'utf8'),
@@ -31,6 +32,8 @@ const [
 ]);
 
 assert.match(index, /width=device-width/);
+assert.match(index, /110792369/);
+assert.match(index, /mc\.yandex\.ru\/metrika\/tag\.js/);
 assert.match(index, /data-action="exit-view"/);
 assert.match(css, /#app\s*\{[\s\S]*max-width:\s*430px/);
 assert.match(css, /\.btn\s*\{[\s\S]*min-height:\s*44px/);
@@ -80,6 +83,8 @@ assert.doesNotMatch(games, /<table/);
 assert.match(settings, /buildQrUrl\(company\.view_slug\)/);
 assert.match(settings, /btn-delete-company/);
 assert.match(settings, /company-danger-zone/);
+assert.match(settings, /company-logout-button/);
+assert.match(settings, /company-delete-icon/);
 assert.match(settings, /M4 7h16/);
 assert.match(settings, /companies\.remove/);
 assert.match(settings, /password-change-form/);
@@ -92,15 +97,17 @@ assert.match(invite, /\/v\/\$\{encodeURIComponent\(viewSlug\)\}/);
 assert.match(invite, /document\.execCommand\('copy'\)/);
 assert.match(index, /data-screen="tournaments"/);
 assert.match(index, /data-context="company"/);
-assert.match(index, /data-context="tournament"/);
+assert.match(index, /id="tournament-subnav"/);
 assert.doesNotMatch(index, /data-screen="company-rating"/);
 assert.doesNotMatch(index, /data-screen="tournament-settings"/);
-assert.match(index, /data-action="back-tournaments"[\s\S]*Компания/);
-assert.match(index, /data-action="logout-company"/);
-assert.match(index, /Компания[\s\S]*Раунды[\s\S]*Рейтинг турнира/);
+assert.doesNotMatch(index, /data-action="back-tournaments"/);
+assert.match(index, /tournament-subnav-btn[\s\S]*Раунды[\s\S]*Рейтинг/);
+assert.doesNotMatch(index, /data-action="logout-company"/);
 assert.match(app, /clearActiveTournament/);
-assert.match(app, /four-item-nav/);
+assert.match(app, /tournamentSubnavEl/);
+assert.doesNotMatch(app, /four-item-nav/);
 assert.match(app, /let current = 'games'/);
+assert.match(app, /ym\(110792369,\s*'hit'/);
 assert.match(api, /\/companies\/\$\{companyId\}\/tournaments/);
 assert.match(api, /\/tournaments\/\$\{tournamentId\}\/rounds/);
 assert.match(api, /&ids=/);
@@ -116,7 +123,12 @@ assert.match(tournamentHub, /data-delete-tournament/);
 assert.match(tournamentHub, /confirmAction/);
 assert.match(tournamentCreate, /player_ids/);
 assert.match(tournamentCreate, /Выбрано:/);
+assert.match(tournamentCreate, /showTournamentRules/);
 assert.match(tournamentSettings, /Завершённый турнир|status !== 'completed'/);
+assert.match(tournamentRules, /16\+1/);
+assert.match(tournamentRules, /24\+1/);
+assert.match(tournamentRules, /17-ю подачу/);
+assert.match(rounds, /btn-tournament-rules/);
 assert.match(rating, /point_share/);
 assert.match(rating, /average_difference/);
 assert.match(players, /player-company-stats/);

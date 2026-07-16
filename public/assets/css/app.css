@@ -72,6 +72,9 @@ main#screen.settings-screen {
     min-height: 100dvh;
     flex-direction: column;
 }
+main#screen.tournament-context-screen {
+    padding-bottom: calc(var(--nav-h) + var(--safe-bottom) + 58px);
+}
 
 .hidden { display: none !important; }
 
@@ -881,6 +884,85 @@ p { color: var(--muted); }
     stroke-linecap: round;
     stroke-linejoin: round;
 }
+.round-info-icon {
+    background: var(--primary-soft);
+    color: var(--primary);
+}
+.tournament-rules-dialog {
+    position: fixed;
+    top: 50%;
+    right: auto;
+    bottom: auto;
+    left: 50%;
+    width: calc(100% - 24px);
+    max-width: 406px;
+    max-height: calc(100dvh - 28px);
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    border: 0;
+    border-radius: 18px;
+    background: var(--surface);
+    box-shadow: 0 24px 70px rgba(32, 34, 53, .28);
+    transform: translate(-50%, -50%);
+}
+.tournament-rules-dialog::backdrop {
+    background: rgba(32, 34, 53, .48);
+    backdrop-filter: blur(3px);
+}
+.tournament-rules-head {
+    display: flex;
+    padding: 12px 13px 9px;
+    border-bottom: 1px solid var(--border);
+    align-items: center;
+    justify-content: space-between;
+}
+.tournament-rules-head h2 { font-size: 17px; line-height: 1.15; }
+.tournament-rules-body {
+    display: grid;
+    max-height: calc(100dvh - 105px);
+    padding: 10px 12px 13px;
+    overflow-y: auto;
+    gap: 7px;
+}
+.tournament-rules-body section {
+    padding: 8px 9px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+}
+.tournament-rules-body section > strong {
+    display: flex;
+    margin-bottom: 5px;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+}
+.tournament-rules-body section > strong span {
+    padding: 2px 5px;
+    border-radius: 6px;
+    background: var(--primary-soft);
+    color: var(--primary);
+    font-size: 9px;
+}
+.tournament-rules-body ol { padding-left: 17px; }
+.tournament-rules-body li,
+.tournament-rules-body p {
+    color: var(--muted);
+    font-size: 9px;
+    line-height: 1.4;
+}
+.tournament-rules-body li + li { margin-top: 4px; }
+.tournament-rules-note {
+    padding: 7px 8px;
+    border-radius: 9px;
+    background: var(--primary-soft);
+    color: var(--text);
+    font-size: 9px;
+    line-height: 1.4;
+}
+.tournament-rules-hint { padding: 0 3px; }
+.tournament-rules-body > .btn { width: 100%; }
 .schedule-grid-icon {
     position: relative;
     display: grid;
@@ -1992,14 +2074,6 @@ p { color: var(--muted); }
     font-weight: 800;
 }
 
-.settings-actions {
-    display: grid;
-    gap: 4px;
-    margin-top: 10px;
-    padding-top: 8px;
-    border-top: 1px solid var(--border);
-}
-
 .list-action {
     display: flex;
     min-height: 40px;
@@ -2017,37 +2091,106 @@ p { color: var(--muted); }
 .list-action b { color: var(--muted); font-size: 10px; font-weight: 500; }
 .list-action.danger span { color: var(--danger); }
 .company-danger-zone {
+    display: grid;
     margin-top: auto;
     padding-top: 12px;
+    grid-template-columns: minmax(0, 1fr) 44px;
+    align-items: stretch;
+    gap: 7px;
 }
-.list-action.delete-company {
+.company-logout-button {
     display: grid;
     width: 100%;
-    min-height: 52px;
-    margin-top: 7px;
-    padding: 7px 9px;
-    border: 1px solid #f0d4d1;
-    background: var(--danger-soft);
-    grid-template-columns: 28px minmax(0, 1fr);
+    min-height: 48px;
+    padding: 6px 9px;
+    border: 1px solid var(--border);
+    border-radius: 11px;
+    background: var(--surface);
+    grid-template-columns: 26px minmax(0, 1fr);
     align-items: center;
-    gap: 8px;
+    gap: 7px;
+    text-align: left;
 }
-.list-action.delete-company > svg {
-    width: 22px;
-    height: 22px;
+.company-logout-button > svg,
+.company-delete-icon > svg {
+    width: 20px;
+    height: 20px;
     fill: none;
-    stroke: var(--danger);
+    stroke: currentColor;
     stroke-width: 1.8;
     stroke-linecap: round;
     stroke-linejoin: round;
 }
-.list-action.delete-company > span {
+.company-logout-button > svg { color: var(--primary); }
+.company-logout-button > span {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
 }
+.company-logout-button strong { font-size: 11px; }
+.company-logout-button small { color: var(--muted); font-size: 8px; }
+.company-delete-icon {
+    display: grid;
+    width: 44px;
+    min-height: 44px;
+    border: 1px solid #f0d4d1;
+    border-radius: 11px;
+    background: var(--danger-soft);
+    color: var(--danger);
+    place-items: center;
+}
 
 /* Нижняя навигация */
+.tournament-subnav {
+    position: fixed;
+    z-index: 99;
+    bottom: calc(7px + var(--safe-bottom) + var(--nav-h) - 4px);
+    left: 50%;
+    display: grid;
+    width: 210px;
+    height: 42px;
+    padding: 4px;
+    border: 1px solid rgba(215, 217, 230, .95);
+    border-bottom-color: rgba(215, 217, 230, .55);
+    border-radius: 14px 14px 8px 8px;
+    background: rgba(255, 255, 255, .96);
+    box-shadow: 0 -7px 22px rgba(32, 34, 53, .09);
+    grid-template-columns: repeat(2, 1fr);
+    gap: 3px;
+    transform: translateX(-50%);
+    backdrop-filter: blur(18px);
+    animation: tournament-subnav-in .18s ease-out;
+}
+.tournament-subnav-btn {
+    display: flex;
+    min-width: 0;
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
+    color: var(--muted);
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    font-size: 9px;
+    font-weight: 700;
+}
+.tournament-subnav-btn svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+.tournament-subnav-btn.active {
+    background: var(--primary-soft);
+    color: var(--primary);
+}
+@keyframes tournament-subnav-in {
+    from { opacity: 0; transform: translate(-50%, 6px); }
+    to { opacity: 1; transform: translate(-50%, 0); }
+}
 .bottom-nav {
     position: fixed;
     z-index: 100;
@@ -2066,7 +2209,6 @@ p { color: var(--muted); }
     transform: translateX(-50%);
     backdrop-filter: blur(18px);
 }
-.bottom-nav.four-item-nav { grid-template-columns: repeat(4, 1fr); }
 
 .nav-btn {
     position: relative;

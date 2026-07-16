@@ -11,6 +11,7 @@ import { renderTournamentSettings } from './screens/tournament-settings.js';
 
 const screenEl = document.getElementById('screen');
 const navEl = document.getElementById('nav');
+const tournamentSubnavEl = document.getElementById('tournament-subnav');
 
 const screens = {
     home: renderHome,
@@ -23,6 +24,17 @@ const screens = {
     'tournament-create': renderTournamentCreate,
     'tournament-settings': renderTournamentSettings,
 };
+const screenTitles = {
+    home: 'Вход',
+    games: 'Компании',
+    players: 'Участники компании',
+    tournaments: 'Турниры компании',
+    'tournament-create': 'Создание турнира',
+    rounds: 'Раунды турнира',
+    rating: 'Рейтинг турнира',
+    settings: 'Настройки компании',
+    'tournament-settings': 'Настройки турнира',
+};
 
 let current = 'games';
 let cleanupCurrent = null;
@@ -31,7 +43,18 @@ export function navigate(name) {
     cleanupCurrent?.();
     cleanupCurrent = null;
     current = name;
-    render();
+    render().then(() => {
+        if (current === name) trackScreen(name);
+    });
+}
+
+function trackScreen(name) {
+    if (typeof window.ym !== 'function') return;
+    const virtualUrl = `${window.location.origin}/spa/${encodeURIComponent(name)}`;
+    window.ym(110792369, 'hit', virtualUrl, {
+        title: screenTitles[name] || 'Падел Американо',
+        referer: window.location.href,
+    });
 }
 
 async function render() {
@@ -46,19 +69,28 @@ async function render() {
 
     navEl.classList.toggle('hidden', !isAuth);
     navEl.classList.toggle('viewer-nav', isViewer);
-    navEl.classList.toggle('four-item-nav', !tournamentContext && !isViewer);
+    tournamentSubnavEl.classList.toggle('hidden', !isAuth || !tournamentContext);
     screenEl.classList.toggle('auth-screen', !isAuth);
     screenEl.classList.toggle('settings-screen', current === 'settings');
+    screenEl.classList.toggle('tournament-context-screen', tournamentContext);
     navEl.querySelectorAll('[data-context]').forEach((button) => {
-        let visible = button.dataset.context === (tournamentContext ? 'tournament' : 'company');
+        let visible = button.dataset.context === 'company';
         if (button.dataset.screen === 'settings' && isViewer) visible = false;
-        if (button.dataset.action === 'logout-company' && isViewer) visible = false;
         if (button.dataset.action === 'exit-view' && !isViewer) visible = false;
         button.classList.toggle('hidden', !visible);
     });
 
     navEl.querySelectorAll('.nav-btn').forEach((btn) => {
-        const active = btn.dataset.screen === current;
+        const active = btn.dataset.screen === current
+            || (btn.dataset.screen === 'tournaments'
+                && ['rounds', 'rating', 'tournament-settings', 'tournament-create'].includes(current));
+        btn.classList.toggle('active', active);
+        if (active) btn.setAttribute('aria-current', 'page');
+        else btn.removeAttribute('aria-current');
+    });
+    tournamentSubnavEl.querySelectorAll('.tournament-subnav-btn').forEach((btn) => {
+        const active = btn.dataset.screen === current
+            || (btn.dataset.screen === 'rounds' && current === 'tournament-settings');
         btn.classList.toggle('active', active);
         if (active) btn.setAttribute('aria-current', 'page');
         else btn.removeAttribute('aria-current');
@@ -84,23 +116,22 @@ async function render() {
 
 navEl.querySelectorAll('.nav-btn').forEach((btn) => {
     if (btn.dataset.screen) {
-        btn.addEventListener('click', () => navigate(btn.dataset.screen));
+        btn.addEventListener('click', () => {
+            if (btn.dataset.screen === 'tournaments') {
+                clearActiveTournament();
+            }
+            navigate(btn.dataset.screen);
+        });
     }
+});
+tournamentSubnavEl.querySelectorAll('.tournament-subnav-btn').forEach((btn) => {
+    btn.addEventListener('click', () => navigate(btn.dataset.screen));
 });
 
 navEl.querySelector('[data-action="exit-view"]')?.addEventListener('click', () => {
     clearSession();
     navigate('games');
 });
-navEl.querySelector('[data-action="logout-company"]')?.addEventListener('click', () => {
-    clearSession();
-    navigate('games');
-});
-navEl.querySelector('[data-action="back-tournaments"]')?.addEventListener('click', () => {
-    clearActiveTournament();
-    navigate('tournaments');
-});
-
 const viewLinkRequested =
     /\/v\/[A-Za-z0-9_-]{12}\/?$/.test(window.location.pathname)
     || new URLSearchParams(window.location.search).has('view');

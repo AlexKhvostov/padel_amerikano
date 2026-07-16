@@ -14,8 +14,6 @@ export async function renderSettings(container, navigate) {
         return;
     }
 
-    const s = company.settings;
-    const locked = company.tournament_started;
     const accessCode = session.password || '';
 
     container.innerHTML = `
@@ -24,20 +22,8 @@ export async function renderSettings(container, navigate) {
                 <span class="eyebrow">${escapeHtml(company.name)}</span>
                 <h1>Настройки</h1>
             </div>
-            ${locked ? '<span class="status-pill locked">Заблокировано</span>' : ''}
+            <span class="status-pill">Компания</span>
         </header>
-        ${locked ? '<div class="notice compact">Турнир уже начат. Параметры защищены от изменений.</div>' : ''}
-
-        <form class="card company-name-setting" id="company-name-form">
-            <div>
-                <label for="company-name-input">Название компании</label>
-                <span>Отображается в поиске и списке игр</span>
-            </div>
-            <input id="company-name-input" maxlength="100" value="${escapeHtml(company.name)}" aria-label="Название компании">
-            <button type="submit" aria-label="Сохранить название">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>
-            </button>
-        </form>
 
         <div class="card access-card">
             <div class="access-details">
@@ -67,35 +53,73 @@ export async function renderSettings(container, navigate) {
             }
         </div>
 
-        <div class="card setting-card">
-            <div class="setting-icon">#</div>
-            <div>
-                <h2>Счёт матча</h2>
-                <p>Свободный ввод. Суммы 16, 17, 24 и 25 — стандартные.</p>
-            </div>
+        <div class="company-edit-actions">
+            <button class="company-edit-action" id="btn-show-name-form">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg>
+                <span><strong>Изменить название</strong><small>${escapeHtml(company.name)}</small></span>
+            </button>
+            <button class="company-edit-action" id="btn-show-password-form">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="15" r="4"/><path d="m11 12 8-8M16 7l2 2M14 9l2 2"/></svg>
+                <span><strong>Изменить код</strong><small>4–8 цифр</small></span>
+            </button>
         </div>
-
-        <div class="card setting-card courts-setting">
-            <div class="setting-icon">▦</div>
-            <div class="setting-main">
-                <label for="courts_count">Количество кортов</label>
-                <p>Одновременные матчи в одном раунде</p>
+        <form class="card company-name-change-card hidden" id="company-name-form">
+            <div class="field">
+                <label for="company-name-input">Новое название компании</label>
+                <input id="company-name-input" maxlength="100" value="${escapeHtml(company.name)}">
             </div>
-            <input type="number" id="courts_count" min="1" max="10" value="${s.courts_count}" ${locked ? 'disabled' : ''}>
-        </div>
-
-        ${locked ? '' : '<button class="btn btn-primary" id="btn-save-settings">Сохранить настройки</button>'}
+            <p>Название отображается в поиске и публичном списке.</p>
+            <div class="button-row">
+                <button type="button" class="btn btn-ghost" id="btn-cancel-name">Отмена</button>
+                <button type="submit" class="btn btn-primary">Сохранить название</button>
+            </div>
+        </form>
+        <form class="card password-change-card hidden" id="password-change-form">
+            <div class="field">
+                <label for="current-password">Текущий код</label>
+                <input type="password" id="current-password" inputmode="numeric" maxlength="8" autocomplete="current-password">
+            </div>
+            <div class="password-new-fields">
+                <div class="field">
+                    <label for="new-password">Новый код</label>
+                    <input type="password" id="new-password" inputmode="numeric" maxlength="8" autocomplete="new-password">
+                </div>
+                <div class="field">
+                    <label for="repeat-password">Повторите код</label>
+                    <input type="password" id="repeat-password" inputmode="numeric" maxlength="8" autocomplete="new-password">
+                </div>
+            </div>
+            <div class="button-row">
+                <button type="button" class="btn btn-ghost" id="btn-cancel-password">Отмена</button>
+                <button type="submit" class="btn btn-primary">Сохранить код</button>
+            </div>
+        </form>
 
         <div class="settings-actions">
-            <button class="list-action danger" id="btn-reset"><span>Сбросить турнир</span><b>Все результаты будут удалены</b></button>
             <button class="list-action" id="btn-logout"><span>Выйти из компании</span><b>Вернуться на экран входа</b></button>
+        </div>
+
+        <div class="company-danger-zone">
             <button class="list-action danger delete-company" id="btn-delete-company">
-                <span>Удалить компанию</span><b>Компания исчезнет из сервиса без возможности возврата</b>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/>
+                </svg>
+                <span><strong>Удалить компанию</strong><b>Компания исчезнет из сервиса без возможности возврата</b></span>
             </button>
         </div>
     `;
 
-    container.querySelector('#company-name-form').addEventListener('submit', async (event) => {
+    const nameForm = container.querySelector('#company-name-form');
+    const passwordForm = container.querySelector('#password-change-form');
+    container.querySelector('#btn-show-name-form').addEventListener('click', () => {
+        passwordForm.classList.add('hidden');
+        nameForm.classList.toggle('hidden');
+    });
+    container.querySelector('#btn-cancel-name').addEventListener('click', () => {
+        nameForm.reset();
+        nameForm.classList.add('hidden');
+    });
+    nameForm.addEventListener('submit', async (event) => {
         event.preventDefault();
         const input = container.querySelector('#company-name-input');
         try {
@@ -125,25 +149,28 @@ export async function renderSettings(container, navigate) {
         shareViewerInvite(company.name, company.view_slug);
     });
 
-    container.querySelector('#btn-save-settings')?.addEventListener('click', async () => {
-        try {
-            const payload = {
-                courts_count: Number(container.querySelector('#courts_count').value),
-            };
-            const { settings } = await companies.updateSettings(session.id, payload);
-            session.settings = settings;
-            setSession(session);
-            toast('Настройки сохранены');
-        } catch (e) {
-            toast(e.message, true);
-        }
+    container.querySelector('#btn-show-password-form').addEventListener('click', () => {
+        nameForm.classList.add('hidden');
+        passwordForm.classList.toggle('hidden');
     });
-
-    container.querySelector('#btn-reset').addEventListener('click', async () => {
-        if (!confirmAction('Сбросить все раунды и результаты?')) return;
+    container.querySelector('#btn-cancel-password').addEventListener('click', () => {
+        passwordForm.reset();
+        passwordForm.classList.add('hidden');
+    });
+    passwordForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const currentPassword = container.querySelector('#current-password').value.trim();
+        const newPassword = container.querySelector('#new-password').value.trim();
+        const repeated = container.querySelector('#repeat-password').value.trim();
+        if (newPassword !== repeated) {
+            toast('Новые коды не совпадают', true);
+            return;
+        }
         try {
-            await companies.reset(session.id);
-            toast('Турнир сброшен');
+            await companies.changePassword(session.id, currentPassword, newPassword);
+            session.password = newPassword;
+            setSession(session);
+            toast('Код администратора изменён');
             renderSettings(container, navigate);
         } catch (e) {
             toast(e.message, true);
@@ -152,7 +179,7 @@ export async function renderSettings(container, navigate) {
 
     container.querySelector('#btn-logout').addEventListener('click', () => {
         clearSession();
-        navigate('home');
+        navigate('games');
     });
 
     container.querySelector('#btn-delete-company').addEventListener('click', async () => {

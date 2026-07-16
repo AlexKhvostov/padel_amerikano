@@ -2,8 +2,17 @@ import { rounds, matches } from '../api.js';
 import { getSession } from '../storage.js';
 import { toast, escapeHtml, renderError, confirmAction } from '../ui.js';
 
-export async function renderRounds(container) {
+export async function renderRounds(container, navigate = null) {
     const session = getSession();
+    const tournamentId = session.tournamentId;
+    if (!tournamentId) {
+        if (navigate) {
+            navigate('tournaments');
+            return;
+        }
+        renderError(container, 'Сначала выберите турнир', () => window.location.reload());
+        return;
+    }
     const canEdit = session.role !== 'viewer';
     let stopped = false;
     let editing = false;
@@ -14,13 +23,13 @@ export async function renderRounds(container) {
         if (stopped || loading || (editing && !force)) return;
         loading = true;
         try {
-            const data = await rounds.list(session.id, !showError);
+            const data = await rounds.list(tournamentId, !showError);
             const nextSnapshot = JSON.stringify(data);
             if (force || nextSnapshot !== snapshot) {
                 snapshot = nextSnapshot;
                 renderRoundsContent(container, data, session, canEdit, load, (value) => {
                     editing = value;
-                });
+                }, navigate);
             }
         } catch (e) {
             if (showError && !stopped) {
@@ -42,7 +51,7 @@ export async function renderRounds(container) {
     };
 }
 
-function renderRoundsContent(container, data, session, canEdit, reload, setEditing) {
+function renderRoundsContent(container, data, session, canEdit, reload, setEditing, navigate) {
     const roundsList = data.rounds || [];
     const schedule = data.schedule || {};
     const lastRound = roundsList[roundsList.length - 1];
@@ -56,10 +65,17 @@ function renderRoundsContent(container, data, session, canEdit, reload, setEditi
     container.innerHTML = `
         <header class="page-header">
             <div>
-                <span class="eyebrow">Расписание</span>
+                <span class="eyebrow">${escapeHtml(session.tournamentName || 'Турнир')}</span>
                 <h1>Раунды</h1>
             </div>
             <div class="round-page-actions">
+                ${
+                    canEdit
+                        ? `<button class="round-settings-icon" id="btn-tournament-settings" aria-label="Настройки турнира" title="Настройки турнира">
+                               <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.12-1.3l2-1.55-2-3.46-2.44 1A7 7 0 0 0 14.2 5.4L13.85 3h-4l-.35 2.4a7 7 0 0 0-2.24 1.3l-2.44-1-2 3.46 2 1.55A7 7 0 0 0 4.7 12c0 .44.04.87.12 1.29l-2 1.56 2 3.46 2.44-1a7 7 0 0 0 2.24 1.3l.35 2.39h4l.35-2.4a7 7 0 0 0 2.24-1.3l2.44 1 2-3.46-2-1.55c.08-.42.12-.85.12-1.29Z"/></svg>
+                           </button>`
+                        : ''
+                }
                 ${
                     session.role === 'viewer'
                         ? '<span class="live-pill"><i></i> Просмотр</span>'
@@ -128,7 +144,7 @@ function renderRoundsContent(container, data, session, canEdit, reload, setEditi
         const button = event.currentTarget;
         button.disabled = true;
         try {
-            await rounds.create(session.id);
+            await rounds.create(session.tournamentId);
             toast(roundsList.length ? 'Следующий раунд открыт' : 'Расписание создано');
             await reload(true, true);
         } catch (e) {
@@ -136,8 +152,11 @@ function renderRoundsContent(container, data, session, canEdit, reload, setEditi
             toast(e.message, true);
         }
     });
+    container.querySelector('#btn-tournament-settings')?.addEventListener('click', () => {
+        navigate?.('tournament-settings');
+    });
 
-    bindScheduleDialog(container, session.id);
+    bindScheduleDialog(container, session.tournamentId);
 }
 
 function renderScheduleSummary(schedule) {

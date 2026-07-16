@@ -52,7 +52,7 @@ export function renderHome(container, navigate) {
                 </div>
             </div>
             <button class="browse-games" id="btn-browse-games">
-                <span>Посмотреть все игры</span><b aria-hidden="true">→</b>
+                <span>Посмотреть все компании</span><b aria-hidden="true">→</b>
             </button>
         </section>
     `;
@@ -141,7 +141,7 @@ export function renderHome(container, navigate) {
             );
             setSession(data);
             window.history.replaceState({}, '', '/');
-            navigate('players');
+            navigate('tournaments');
         } catch (e) {
             toast(e.message, true);
         }
@@ -156,7 +156,7 @@ export function renderHome(container, navigate) {
             .then((session) => {
                 setSession(session);
                 window.history.replaceState({}, '', '/');
-                navigate('rounds');
+                navigate('tournaments');
             })
             .catch((error) => toast(error.message, true));
         return;
@@ -213,6 +213,6 @@ function showCredentials(container, data, navigate) {
 
     container.querySelector('#btn-enter').addEventListener('click', () => {
         setSession(data);
-        navigate('players');
+        navigate('tournaments');
     });
 }

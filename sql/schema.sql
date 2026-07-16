@@ -8,6 +8,8 @@ DROP TABLE IF EXISTS match_scores;
 DROP TABLE IF EXISTS match_players;
 DROP TABLE IF EXISTS matches;
 DROP TABLE IF EXISTS rounds;
+DROP TABLE IF EXISTS tournament_players;
+DROP TABLE IF EXISTS tournaments;
 DROP TABLE IF EXISTS players;
 DROP TABLE IF EXISTS login_attempts;
 DROP TABLE IF EXISTS companies;
@@ -43,9 +45,38 @@ CREATE TABLE players (
     UNIQUE KEY uq_players_company_name (company_id, name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE tournaments (
+    id          INT AUTO_INCREMENT PRIMARY KEY,
+    company_id  INT NOT NULL,
+    name        VARCHAR(100) NOT NULL,
+    status      ENUM('draft', 'active', 'completed') NOT NULL DEFAULT 'draft',
+    settings    JSON NOT NULL,
+    started_at  DATETIME NULL,
+    completed_at DATETIME NULL,
+    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    active_company_id INT GENERATED ALWAYS AS (
+        CASE WHEN status = 'active' THEN company_id ELSE NULL END
+    ) VIRTUAL,
+    FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE,
+    UNIQUE KEY uq_tournaments_one_active (active_company_id),
+    INDEX idx_tournaments_company_status (company_id, status, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE tournament_players (
+    tournament_id INT NOT NULL,
+    player_id     INT NOT NULL,
+    is_active     TINYINT NOT NULL DEFAULT 1,
+    joined_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (tournament_id, player_id),
+    FOREIGN KEY (tournament_id) REFERENCES tournaments(id) ON DELETE CASCADE,
+    FOREIGN KEY (player_id) REFERENCES players(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE rounds (
     id           INT AUTO_INCREMENT PRIMARY KEY,
     company_id   INT NOT NULL,
+    tournament_id INT NOT NULL,
     round_number INT NOT NULL,
     bench_player_ids JSON NULL,
     status       ENUM('planned', 'active', 'completed') NOT NULL DEFAULT 'planned',
@@ -54,7 +85,8 @@ CREATE TABLE rounds (
     ) VIRTUAL,
     created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE,
-    UNIQUE KEY uq_rounds_company_number (company_id, round_number),
+    FOREIGN KEY (tournament_id) REFERENCES tournaments(id) ON DELETE CASCADE,
+    UNIQUE KEY uq_rounds_tournament_number (tournament_id, round_number),
     UNIQUE KEY uq_rounds_one_active (active_company_id),
     INDEX idx_rounds_company_status (company_id, status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -39,6 +39,11 @@ export async function api(path, options = {}) {
 }
 
 export const companies = {
+    publicList: (query = '', page = 1, silent = false, companyIds = null, activityStatus = '') => {
+        const ids = companyIds === null ? '' : `&ids=${companyIds.join(',')}`;
+        const status = activityStatus ? `&status=${encodeURIComponent(activityStatus)}` : '';
+        return api(`/companies/public?q=${encodeURIComponent(query)}&page=${page}${ids}${status}`, { silent });
+    },
     search: (q) => api(`/companies/search?q=${encodeURIComponent(q)}`),
     create: (name) => api('/companies', { method: 'POST', body: JSON.stringify({ name }) }),
     login: (name, password) =>
@@ -47,6 +52,14 @@ export const companies = {
     get: (id) => api(`/companies/${id}`),
     rename: (id, name) =>
         api(`/companies/${id}`, { method: 'PUT', body: JSON.stringify({ name }) }),
+    changePassword: (id, currentPassword, newPassword) =>
+        api(`/companies/${id}/password`, {
+            method: 'PUT',
+            body: JSON.stringify({
+                current_password: currentPassword,
+                new_password: newPassword,
+            }),
+        }),
     updateSettings: (id, settings) =>
         api(`/companies/${id}/settings`, { method: 'PUT', body: JSON.stringify(settings) }),
     reset: (id) => api(`/companies/${id}/reset`, { method: 'DELETE' }),
@@ -59,12 +72,14 @@ export const players = {
         api(`/companies/${companyId}/players`, { method: 'POST', body: JSON.stringify(data) }),
     update: (id, data) => api(`/players/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     remove: (id) => api(`/players/${id}`, { method: 'DELETE' }),
+    activate: (id) => api(`/players/${id}/activate`, { method: 'PUT' }),
+    stats: (id) => api(`/players/${id}/stats`),
 };
 
 export const rounds = {
-    list: (companyId, silent = false) => api(`/companies/${companyId}/rounds`, { silent }),
-    schedule: (companyId) => api(`/companies/${companyId}/schedule`),
-    create: (companyId) => api(`/companies/${companyId}/rounds`, { method: 'POST' }),
+    list: (tournamentId, silent = false) => api(`/tournaments/${tournamentId}/rounds`, { silent }),
+    schedule: (tournamentId) => api(`/tournaments/${tournamentId}/schedule`),
+    create: (tournamentId) => api(`/tournaments/${tournamentId}/rounds`, { method: 'POST' }),
 };
 
 export const matches = {
@@ -80,10 +95,29 @@ export const matches = {
 };
 
 export const rating = {
+    company: (companyId) => api(`/companies/${companyId}/rating`),
+    tournament: (tournamentId) => api(`/tournaments/${tournamentId}/rating`),
     get: (companyId) => api(`/companies/${companyId}/rating`),
 };
 
 export const tournaments = {
-    list: (date = '', silent = false) =>
+    publicList: (date = '', silent = false) =>
         api(`/tournaments${date ? `?date=${encodeURIComponent(date)}` : ''}`, { silent }),
+    list: (companyId, silent = false) => api(`/companies/${companyId}/tournaments`, { silent }),
+    create: (companyId, data) =>
+        api(`/companies/${companyId}/tournaments`, {
+            method: 'POST',
+            body: JSON.stringify(data),
+        }),
+    get: (id) => api(`/tournaments/${id}`),
+    update: (id, data) =>
+        api(`/tournaments/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    players: (id) => api(`/tournaments/${id}/players`),
+    updatePlayers: (id, playerIds) =>
+        api(`/tournaments/${id}/players`, {
+            method: 'PUT',
+            body: JSON.stringify({ player_ids: playerIds }),
+        }),
+    remove: (id) => api(`/tournaments/${id}`, { method: 'DELETE' }),
+    reset: (id) => api(`/tournaments/${id}/reset`, { method: 'DELETE' }),
 };

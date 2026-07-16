@@ -37,6 +37,8 @@ function route(string $method, string $uri): void
         $dbOk = false;
         try {
             db()->query('SELECT 1');
+            db()->query('SELECT tournament_id FROM rounds LIMIT 0');
+            db()->query('SELECT id, updated_at FROM tournaments LIMIT 0');
             $dbOk = true;
         } catch (Throwable) {
             $dbOk = false;
@@ -46,6 +48,23 @@ function route(string $method, string $uri): void
             'db' => $dbOk,
             'php' => PHP_VERSION,
         ], $dbOk ? 200 : 503);
+    }
+
+    if ($method === 'GET' && $uri === '/companies/public') {
+        $companyIds = null;
+        if (array_key_exists('ids', $_GET)) {
+            $rawIds = is_string($_GET['ids']) ? explode(',', $_GET['ids']) : [];
+            $companyIds = array_slice(array_values(array_unique(array_filter(
+                array_map('intval', $rawIds),
+                static fn (int $id): bool => $id > 0
+            ))), 0, 100);
+        }
+        jsonResponse(CompanyService::publicList(
+            (string) ($_GET['q'] ?? ''),
+            (int) ($_GET['page'] ?? 1),
+            $companyIds,
+            isset($_GET['status']) ? (string) $_GET['status'] : null
+        ));
     }
 
     if ($method === 'GET' && $uri === '/companies/search') {
@@ -102,6 +121,18 @@ function route(string $method, string $uri): void
         jsonResponse(CompanyService::rename($id, (string) ($body['name'] ?? '')));
     }
 
+    if (preg_match('#^/companies/(\d+)/password$#', $uri, $m) && $method === 'PUT') {
+        $id = (int) $m[1];
+        CompanyService::assertAccess($id, true);
+        $body = readJsonBody();
+        CompanyService::changePassword(
+            $id,
+            (string) ($body['current_password'] ?? ''),
+            (string) ($body['new_password'] ?? '')
+        );
+        jsonResponse(['ok' => true]);
+    }
+
     if (preg_match('#^/companies/(\d+)/settings$#', $uri, $m) && $method === 'PUT') {
         $id = (int) $m[1];
         CompanyService::assertAccess($id, true);
@@ -124,8 +155,76 @@ function route(string $method, string $uri): void
         jsonResponse(PlayerService::create((int) $m[1], readJsonBody()), 201);
     }
 
+    if (preg_match('#^/companies/(\d+)/tournaments$#', $uri, $m)) {
+        $companyId = (int) $m[1];
+        if ($method === 'GET') {
+            jsonResponse(TournamentService::listForCompany($companyId));
+        }
+        if ($method === 'POST') {
+            jsonResponse(TournamentService::create($companyId, readJsonBody()), 201);
+        }
+    }
+
+    if (preg_match('#^/tournaments/(\d+)$#', $uri, $m)) {
+        $tournamentId = (int) $m[1];
+        if ($method === 'GET') {
+            jsonResponse(TournamentService::get($tournamentId));
+        }
+        if ($method === 'PUT') {
+            jsonResponse(TournamentService::updateSettings($tournamentId, readJsonBody()));
+        }
+        if ($method === 'DELETE') {
+            TournamentService::remove($tournamentId);
+            jsonResponse(['ok' => true]);
+        }
+    }
+
+    if (preg_match('#^/tournaments/(\d+)/players$#', $uri, $m)) {
+        $tournamentId = (int) $m[1];
+        if ($method === 'GET') {
+            jsonResponse(TournamentService::players($tournamentId));
+        }
+        if ($method === 'PUT') {
+            $body = readJsonBody();
+            jsonResponse(TournamentService::updatePlayers(
+                $tournamentId,
+                is_array($body['player_ids'] ?? null) ? $body['player_ids'] : []
+            ));
+        }
+    }
+
+    if (preg_match('#^/tournaments/(\d+)/rounds$#', $uri, $m)) {
+        if ($method === 'GET') {
+            jsonResponse(RoundService::list((int) $m[1]));
+        }
+        if ($method === 'POST') {
+            jsonResponse(RoundService::createNext((int) $m[1]), 201);
+        }
+    }
+
+    if (preg_match('#^/tournaments/(\d+)/schedule$#', $uri, $m) && $method === 'GET') {
+        jsonResponse(RoundService::fullSchedule((int) $m[1]));
+    }
+
+    if (preg_match('#^/tournaments/(\d+)/rating$#', $uri, $m) && $method === 'GET') {
+        jsonResponse(RatingService::getTournament((int) $m[1]));
+    }
+
+    if (preg_match('#^/tournaments/(\d+)/reset$#', $uri, $m) && $method === 'DELETE') {
+        TournamentService::reset((int) $m[1]);
+        jsonResponse(['ok' => true]);
+    }
+
     if (preg_match('#^/players/(\d+)$#', $uri, $m) && $method === 'PUT') {
         jsonResponse(PlayerService::update((int) $m[1], readJsonBody()));
+    }
+
+    if (preg_match('#^/players/(\d+)/stats$#', $uri, $m) && $method === 'GET') {
+        jsonResponse(PlayerService::stats((int) $m[1]));
+    }
+
+    if (preg_match('#^/players/(\d+)/activate$#', $uri, $m) && $method === 'PUT') {
+        jsonResponse(PlayerService::activate((int) $m[1]));
     }
 
     if (preg_match('#^/players/(\d+)$#', $uri, $m) && $method === 'DELETE') {
@@ -134,15 +233,15 @@ function route(string $method, string $uri): void
     }
 
     if (preg_match('#^/companies/(\d+)/rounds$#', $uri, $m) && $method === 'GET') {
-        jsonResponse(RoundService::list((int) $m[1]));
+        jsonResponse(RoundService::list(TournamentService::currentIdForCompany((int) $m[1])));
     }
 
     if (preg_match('#^/companies/(\d+)/schedule$#', $uri, $m) && $method === 'GET') {
-        jsonResponse(RoundService::fullSchedule((int) $m[1]));
+        jsonResponse(RoundService::fullSchedule(TournamentService::currentIdForCompany((int) $m[1])));
     }
 
     if (preg_match('#^/companies/(\d+)/rounds$#', $uri, $m) && $method === 'POST') {
-        jsonResponse(RoundService::createNext((int) $m[1]), 201);
+        jsonResponse(RoundService::createNext(TournamentService::currentIdForCompany((int) $m[1])), 201);
     }
 
     if (preg_match('#^/matches/(\d+)/score$#', $uri, $m) && $method === 'PUT') {
@@ -150,7 +249,7 @@ function route(string $method, string $uri): void
     }
 
     if (preg_match('#^/companies/(\d+)/rating$#', $uri, $m) && $method === 'GET') {
-        jsonResponse(RatingService::get((int) $m[1]));
+        jsonResponse(RatingService::getCompany((int) $m[1]));
     }
 
     jsonError('Маршрут не найден', 404);

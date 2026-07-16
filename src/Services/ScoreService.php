@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/CompanyService.php';
+require_once __DIR__ . '/TournamentService.php';
 require_once dirname(__DIR__) . '/Domain/ScoreValidator.php';
 
 final class ScoreService
@@ -43,6 +44,7 @@ final class ScoreService
             $matchId,
         ]);
         self::completeRoundWhenReady((int) $match['round_id']);
+        TournamentService::refreshCompletion((int) $match['tournament_id']);
 
         return self::getMatch($matchId);
     }
@@ -50,7 +52,8 @@ final class ScoreService
     private static function getMatch(int $matchId): array
     {
         $stmt = db()->prepare(
-            'SELECT m.id, m.court_number, m.round_id, r.company_id, r.round_number,
+            'SELECT m.id, m.court_number, m.round_id, r.company_id, r.tournament_id,
+                    r.round_number,
                     ms.score_team1, ms.score_team2, ms.is_finished
              FROM matches m
              JOIN rounds r ON r.id = m.round_id
@@ -64,6 +67,7 @@ final class ScoreService
         }
         $match['id'] = (int) $match['id'];
         $match['company_id'] = (int) $match['company_id'];
+        $match['tournament_id'] = (int) $match['tournament_id'];
         $match['score_team1'] = $match['score_team1'] === null
             ? null
             : (int) $match['score_team1'];

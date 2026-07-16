@@ -5,30 +5,32 @@ declare(strict_types=1);
 require_once __DIR__ . '/CompanyService.php';
 require_once __DIR__ . '/PlayerService.php';
 require_once __DIR__ . '/RoundGenerator.php';
+require_once __DIR__ . '/TournamentService.php';
 
 final class RoundService
 {
-    public static function list(int $companyId): array
+    public static function list(int $tournamentId): array
     {
+        $companyId = TournamentService::companyId($tournamentId);
         CompanyService::assertAccess($companyId);
 
         $stmt = db()->prepare(
             "SELECT id, round_number, bench_player_ids, status, created_at
              FROM rounds
-             WHERE company_id = ? AND status <> 'planned'
+             WHERE tournament_id = ? AND status <> 'planned'
              ORDER BY round_number ASC"
         );
-        $stmt->execute([$companyId]);
+        $stmt->execute([$tournamentId]);
         $rounds = $stmt->fetchAll();
-        $playerMap = self::playerMap($companyId);
+        $playerMap = self::playerMap($tournamentId);
 
         foreach ($rounds as &$round) {
             $round = self::hydrateRound($round, $playerMap);
         }
 
         $schedule = $rounds === []
-            ? self::previewSchedule($companyId)
-            : self::scheduleSummary($companyId);
+            ? self::previewSchedule($tournamentId)
+            : self::scheduleSummary($tournamentId);
 
         return [
             'rounds' => $rounds,
@@ -36,30 +38,31 @@ final class RoundService
         ];
     }
 
-    public static function fullSchedule(int $companyId): array
+    public static function fullSchedule(int $tournamentId): array
     {
+        $companyId = TournamentService::companyId($tournamentId);
         CompanyService::assertAccess($companyId);
 
         $stmt = db()->prepare(
             'SELECT id, round_number, bench_player_ids, status, created_at
              FROM rounds
-             WHERE company_id = ?
+             WHERE tournament_id = ?
              ORDER BY round_number ASC'
         );
-        $stmt->execute([$companyId]);
+        $stmt->execute([$tournamentId]);
         $rounds = $stmt->fetchAll();
-        $playerMap = self::playerMap($companyId);
+        $playerMap = self::playerMap($tournamentId);
 
         if ($rounds !== []) {
-            return ['rounds' => self::hydrateFullSchedule($companyId, $rounds, $playerMap)];
+            return ['rounds' => self::hydrateFullSchedule($tournamentId, $rounds, $playerMap)];
         }
 
-        $playerIds = PlayerService::activeIds($companyId);
+        $playerIds = TournamentService::activePlayerIds($tournamentId);
         if (count($playerIds) < 4) {
             return ['rounds' => []];
         }
 
-        $settings = CompanyService::settings($companyId);
+        $settings = TournamentService::settings($tournamentId);
         $preview = RoundGenerator::generateSchedule(
             $playerIds,
             max(1, (int) ($settings['courts_count'] ?? 1))
@@ -104,27 +107,35 @@ final class RoundService
         return ['rounds' => $result];
     }
 
-    public static function createNext(int $companyId): array
+    public static function createNext(int $tournamentId): array
     {
+        $companyId = TournamentService::companyId($tournamentId);
         CompanyService::assertAccess($companyId, true);
+        TournamentService::assertCanStart($tournamentId);
         $pdo = db();
         $pdo->beginTransaction();
 
         try {
-            $companyStmt = $pdo->prepare('SELECT settings FROM companies WHERE id = ? FOR UPDATE');
-            $companyStmt->execute([$companyId]);
-            $company = $companyStmt->fetch();
-            if (!$company) {
+            $tournamentStmt = $pdo->prepare(
+                'SELECT company_id, settings, status FROM tournaments WHERE id = ? FOR UPDATE'
+            );
+            $tournamentStmt->execute([$tournamentId]);
+            $tournament = $tournamentStmt->fetch();
+            if (!$tournament) {
                 $pdo->rollBack();
-                jsonError('Компания не найдена', 404);
+                jsonError('Турнир не найден', 404);
+            }
+            if ($tournament['status'] === 'completed') {
+                $pdo->rollBack();
+                jsonError('Турнир уже завершён', 409);
             }
 
             $activeStmt = $pdo->prepare(
                 "SELECT id FROM rounds
-                 WHERE company_id = ? AND status = 'active'
+                 WHERE tournament_id = ? AND status = 'active'
                  ORDER BY round_number ASC LIMIT 1 FOR UPDATE"
             );
-            $activeStmt->execute([$companyId]);
+            $activeStmt->execute([$tournamentId]);
             $activeRoundId = $activeStmt->fetchColumn();
 
             if ($activeRoundId !== false) {
@@ -138,35 +149,50 @@ final class RoundService
 
             $plannedStmt = $pdo->prepare(
                 "SELECT id FROM rounds
-                 WHERE company_id = ? AND status = 'planned'
+                 WHERE tournament_id = ? AND status = 'planned'
                  ORDER BY round_number ASC LIMIT 1 FOR UPDATE"
             );
-            $plannedStmt->execute([$companyId]);
+            $plannedStmt->execute([$tournamentId]);
             $nextId = $plannedStmt->fetchColumn();
 
             if ($nextId === false) {
-                if (count(PlayerService::activeIds($companyId)) < 4) {
+                if (count(TournamentService::activePlayerIds($tournamentId)) < 4) {
                     $pdo->rollBack();
                     jsonError('Минимум 4 активных игрока для создания раунда');
                 }
                 self::appendMissingSchedule(
+                    $tournamentId,
                     $companyId,
-                    json_decode($company['settings'], true) ?: defaultSettings()
+                    json_decode($tournament['settings'], true) ?: defaultSettings()
                 );
-                $plannedStmt->execute([$companyId]);
+                $plannedStmt->execute([$tournamentId]);
                 $nextId = $plannedStmt->fetchColumn();
             }
 
             if ($nextId === false) {
+                $pdo->prepare(
+                    "UPDATE tournaments
+                     SET status = 'completed', completed_at = COALESCE(completed_at, NOW())
+                     WHERE id = ?"
+                )->execute([$tournamentId]);
                 $pdo->commit();
                 jsonError('Полная ротация завершена', 409);
             }
 
+            TournamentService::markStarted($tournamentId);
             $stmt = $pdo->prepare("UPDATE rounds SET status = 'active' WHERE id = ?");
             $stmt->execute([(int) $nextId]);
             $pdo->commit();
 
-            return self::findPublishedRound($companyId, (int) $nextId);
+            return self::findPublishedRound($tournamentId, (int) $nextId);
+        } catch (PDOException $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            if ($e->getCode() === '23000') {
+                jsonError('В компании уже идёт другой турнир', 409);
+            }
+            throw $e;
         } catch (Throwable $e) {
             if ($pdo->inTransaction()) {
                 $pdo->rollBack();
@@ -178,47 +204,52 @@ final class RoundService
     /**
      * Удаляет будущий план. Текущий и завершённые раунды не меняются.
      */
-    public static function invalidatePlanned(int $companyId): void
+    public static function invalidatePlanned(int $tournamentId): void
     {
-        $stmt = db()->prepare("DELETE FROM rounds WHERE company_id = ? AND status = 'planned'");
-        $stmt->execute([$companyId]);
+        $stmt = db()->prepare("DELETE FROM rounds WHERE tournament_id = ? AND status = 'planned'");
+        $stmt->execute([$tournamentId]);
     }
 
     /** @param array<string, mixed> $settings */
-    private static function appendMissingSchedule(int $companyId, array $settings): void
+    private static function appendMissingSchedule(
+        int $tournamentId,
+        int $companyId,
+        array $settings
+    ): void
     {
-        $playerIds = PlayerService::activeIds($companyId);
+        $playerIds = TournamentService::activePlayerIds($tournamentId);
         if (count($playerIds) < 4) {
             throw new InvalidArgumentException(
                 'Минимум 4 активных игрока для создания раунда'
             );
         }
 
-        $history = self::partnerHistory($companyId);
+        $history = self::partnerHistory($tournamentId);
         $schedule = RoundGenerator::generateSchedule(
             $playerIds,
             max(1, (int) ($settings['courts_count'] ?? 1)),
             $history,
-            self::opponentHistory($companyId)
+            self::opponentHistory($tournamentId)
         );
 
         if ($schedule['rounds'] === []) {
             return;
         }
 
-        $stmt = db()->prepare('SELECT COALESCE(MAX(round_number), 0) FROM rounds WHERE company_id = ?');
-        $stmt->execute([$companyId]);
+        $stmt = db()->prepare('SELECT COALESCE(MAX(round_number), 0) FROM rounds WHERE tournament_id = ?');
+        $stmt->execute([$tournamentId]);
         $roundNumber = (int) $stmt->fetchColumn();
 
         foreach ($schedule['rounds'] as $round) {
             $roundNumber++;
             $stmt = db()->prepare(
                 "INSERT INTO rounds
-                    (company_id, round_number, bench_player_ids, status)
-                 VALUES (?, ?, ?, 'planned')"
+                    (company_id, tournament_id, round_number, bench_player_ids, status)
+                 VALUES (?, ?, ?, ?, 'planned')"
             );
             $stmt->execute([
                 $companyId,
+                $tournamentId,
                 $roundNumber,
                 json_encode($round['bench'], JSON_THROW_ON_ERROR),
             ]);
@@ -269,7 +300,7 @@ final class RoundService
      * @return array<int, array<string, mixed>>
      */
     private static function hydrateFullSchedule(
-        int $companyId,
+        int $tournamentId,
         array $rounds,
         array $playerMap
     ): array {
@@ -281,10 +312,10 @@ final class RoundService
              JOIN matches m ON m.round_id = r.id
              LEFT JOIN match_scores ms ON ms.match_id = m.id
              LEFT JOIN match_players mp ON mp.match_id = m.id
-             WHERE r.company_id = ?
+             WHERE r.tournament_id = ?
              ORDER BY r.round_number, m.court_number, mp.team, mp.player_id'
         );
-        $stmt->execute([$companyId]);
+        $stmt->execute([$tournamentId]);
 
         $matches = [];
         while ($row = $stmt->fetch()) {
@@ -328,19 +359,19 @@ final class RoundService
         return $rounds;
     }
 
-    private static function findPublishedRound(int $companyId, int $roundId): array
+    private static function findPublishedRound(int $tournamentId, int $roundId): array
     {
         $stmt = db()->prepare(
             "SELECT id, round_number, bench_player_ids, status, created_at
              FROM rounds
-             WHERE id = ? AND company_id = ? AND status <> 'planned'"
+             WHERE id = ? AND tournament_id = ? AND status <> 'planned'"
         );
-        $stmt->execute([$roundId, $companyId]);
+        $stmt->execute([$roundId, $tournamentId]);
         $round = $stmt->fetch();
         if (!$round) {
             jsonError('Раунд не найден', 404);
         }
-        return self::hydrateRound($round, self::playerMap($companyId));
+        return self::hydrateRound($round, self::playerMap($tournamentId));
     }
 
     /** @param array<int, array<string, mixed>> $playerMap */
@@ -410,12 +441,15 @@ final class RoundService
     }
 
     /** @return array<int, array<string, mixed>> */
-    private static function playerMap(int $companyId): array
+    private static function playerMap(int $tournamentId): array
     {
         $stmt = db()->prepare(
-            'SELECT id, name, telegram, is_active FROM players WHERE company_id = ?'
+            'SELECT p.id, p.name, p.telegram, p.is_active
+             FROM tournament_players tp
+             JOIN players p ON p.id = tp.player_id
+             WHERE tp.tournament_id = ?'
         );
-        $stmt->execute([$companyId]);
+        $stmt->execute([$tournamentId]);
         $map = [];
         while ($row = $stmt->fetch()) {
             $map[(int) $row['id']] = [
@@ -429,17 +463,17 @@ final class RoundService
     }
 
     /** @return array<string, int> */
-    private static function partnerHistory(int $companyId): array
+    private static function partnerHistory(int $tournamentId): array
     {
         $stmt = db()->prepare(
             "SELECT mp.match_id, mp.player_id, mp.team
              FROM match_players mp
              JOIN matches m ON m.id = mp.match_id
              JOIN rounds r ON r.id = m.round_id
-             WHERE r.company_id = ? AND r.status IN ('active', 'completed')
+             WHERE r.tournament_id = ? AND r.status IN ('active', 'completed')
              ORDER BY mp.match_id, mp.team"
         );
-        $stmt->execute([$companyId]);
+        $stmt->execute([$tournamentId]);
         $matches = [];
         while ($row = $stmt->fetch()) {
             $matches[(int) $row['match_id']][(int) $row['team']][] = (int) $row['player_id'];
@@ -460,17 +494,17 @@ final class RoundService
     }
 
     /** @return array<string, int> */
-    private static function opponentHistory(int $companyId): array
+    private static function opponentHistory(int $tournamentId): array
     {
         $stmt = db()->prepare(
             "SELECT mp.match_id, mp.player_id, mp.team
              FROM match_players mp
              JOIN matches m ON m.id = mp.match_id
              JOIN rounds r ON r.id = m.round_id
-             WHERE r.company_id = ? AND r.status IN ('active', 'completed')
+             WHERE r.tournament_id = ? AND r.status IN ('active', 'completed')
              ORDER BY mp.match_id, mp.team"
         );
-        $stmt->execute([$companyId]);
+        $stmt->execute([$tournamentId]);
         $matches = [];
         while ($row = $stmt->fetch()) {
             $matches[(int) $row['match_id']][(int) $row['team']][] = (int) $row['player_id'];
@@ -488,7 +522,7 @@ final class RoundService
         return $history;
     }
 
-    private static function scheduleSummary(int $companyId): array
+    private static function scheduleSummary(int $tournamentId): array
     {
         $stmt = db()->prepare(
             "SELECT COUNT(DISTINCT r.id) AS total_rounds,
@@ -497,23 +531,23 @@ final class RoundService
                     SUM(CASE WHEN r.status = 'planned' THEN 1 ELSE 0 END) AS planned_rows
              FROM rounds r
              LEFT JOIN matches m ON m.round_id = r.id
-             WHERE r.company_id = ?"
+             WHERE r.tournament_id = ?"
         );
-        $stmt->execute([$companyId]);
+        $stmt->execute([$tournamentId]);
         $row = $stmt->fetch();
 
         $roundStmt = db()->prepare(
             "SELECT
                 SUM(status = 'completed') AS completed_rounds,
                 SUM(status = 'planned') AS planned_rounds
-             FROM rounds WHERE company_id = ?"
+             FROM rounds WHERE tournament_id = ?"
         );
-        $roundStmt->execute([$companyId]);
+        $roundStmt->execute([$tournamentId]);
         $roundCounts = $roundStmt->fetch();
-        $activeIds = PlayerService::activeIds($companyId);
+        $activeIds = TournamentService::activePlayerIds($tournamentId);
         $activeLookup = array_fill_keys($activeIds, true);
         $coveredPairs = 0;
-        foreach (self::partnerHistory($companyId) as $key => $count) {
+        foreach (self::partnerHistory($tournamentId) as $key => $count) {
             [$a, $b] = array_map('intval', explode(':', $key));
             if ($count > 0 && isset($activeLookup[$a], $activeLookup[$b])) {
                 $coveredPairs++;
@@ -532,9 +566,9 @@ final class RoundService
         ];
     }
 
-    private static function previewSchedule(int $companyId): array
+    private static function previewSchedule(int $tournamentId): array
     {
-        $playerIds = PlayerService::activeIds($companyId);
+        $playerIds = TournamentService::activePlayerIds($tournamentId);
         if (count($playerIds) < 4) {
             return [
                 'preview' => true,
@@ -544,7 +578,7 @@ final class RoundService
             ];
         }
 
-        $settings = CompanyService::settings($companyId);
+        $settings = TournamentService::settings($tournamentId);
         $schedule = RoundGenerator::generateSchedule(
             $playerIds,
             max(1, (int) ($settings['courts_count'] ?? 1))

@@ -1,18 +1,24 @@
 import { rating } from '../api.js';
 import { getSession } from '../storage.js';
-import { escapeHtml, telegramLink, renderError } from '../ui.js';
+import { escapeHtml, renderError } from '../ui.js';
 
-export async function renderRating(container) {
+export async function renderRating(container, scope = 'tournament', navigate = null) {
     const session = getSession();
+    if (scope === 'tournament' && !session.tournamentId) {
+        navigate?.('tournaments');
+        return;
+    }
     let stopped = false;
 
     const load = async (showError = true) => {
         try {
-            const data = await rating.get(session.id);
-            if (!stopped) renderRows(container, data);
+            const data = scope === 'company'
+                ? await rating.company(session.id)
+                : await rating.tournament(session.tournamentId);
+            if (!stopped) renderRows(container, data, scope, navigate);
         } catch (e) {
             if (showError && !stopped) {
-                renderError(container, e.message, () => renderRating(container));
+                renderError(container, e.message, () => renderRating(container, scope, navigate));
             }
         }
     };
@@ -29,15 +35,15 @@ export async function renderRating(container) {
     };
 }
 
-function renderRows(container, data) {
+function renderRows(container, data, scope, navigate) {
     const rows = data.rating || [];
     const progress = data.progress || { played: 0, total: 0 };
 
     container.innerHTML = `
         <header class="page-header rating-header">
             <div>
-                <span class="eyebrow">Текущие результаты</span>
-                <h1>Рейтинг</h1>
+                <span class="eyebrow">${scope === 'company' ? 'Все турниры' : 'Текущие результаты'}</span>
+                <h1>${scope === 'company' ? 'Рейтинг компании' : 'Рейтинг турнира'}</h1>
             </div>
             <div class="rating-progress">
                 <strong>${progress.played}/${progress.total}</strong>
@@ -47,15 +53,14 @@ function renderRows(container, data) {
         <div class="rating-list">
             ${
                 rows.length
-                    ? rows.map(renderPlayer).join('')
+                    ? rows.map((player) => renderPlayer(player, scope)).join('')
                     : '<div class="empty">Нет данных — сыграйте первые матчи</div>'
             }
         </div>
     `;
 }
 
-function renderPlayer(player) {
-    const telegram = telegramLink(player.telegram);
+function renderPlayer(player, scope) {
     const placeClass = player.place <= 3 ? ` top-${player.place}` : '';
 
     return `
@@ -64,19 +69,26 @@ function renderPlayer(player) {
             <div class="rating-name">
                 <div>
                     <strong>${escapeHtml(player.name)}</strong>
-                    ${
-                        telegram
-                            ? `<a href="${telegram.href}" target="_blank" rel="noopener" aria-label="Telegram ${escapeHtml(player.name)}">↗</a>`
-                            : ''
-                    }
+                    ${scope === 'company' && player.is_provisional ? '<small class="rating-provisional">предв.</small>' : ''}
                 </div>
-                <div class="rating-metrics" aria-label="Игры ${player.matches} из ${player.planned_matches}, побед ${player.wins}, поражений ${player.losses}">
+                <div class="rating-metrics" aria-label="Игры ${player.matches} из ${player.planned_matches}, доля очков ${player.point_share}%, побед ${player.win_rate}%">
                     <span class="games"><b>${player.matches}/${player.planned_matches}</b><small>игр</small></span>
-                    <span class="wins"><b>${player.wins}</b><small>побед</small></span>
-                    <span class="losses"><b>${player.losses}</b><small>пораж.</small></span>
+                    <span><b>${player.point_share}%</b><small>очков</small></span>
+                    <span class="wins"><b>${player.win_rate}%</b><small>побед</small></span>
+                    <span class="difference"><b>${formatSigned(player.average_difference)}</b><small>разница</small></span>
                 </div>
             </div>
-            <div class="rating-points"><strong>${player.points}</strong><span>очков</span></div>
+            <div class="rating-points">
+                <strong>${scope === 'company' ? `${player.point_share}%` : player.points}</strong>
+                <span>${scope === 'company' ? 'доля очков' : 'очков'}</span>
+            </div>
         </article>
     `;
+}
+
+function formatSigned(value) {
+    const number = Number(value) || 0;
+    return `${number > 0 ? '+' : ''}${new Intl.NumberFormat('ru-RU', {
+        maximumFractionDigits: 2,
+    }).format(number)}`;
 }

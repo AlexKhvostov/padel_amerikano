@@ -35,7 +35,15 @@ final class RatingService
         );
         $stmt->execute([$companyId]);
         $players = $stmt->fetchAll();
-        return self::build($players, 'r.company_id = ?', [$companyId], true);
+        return self::build(
+            $players,
+            'r.company_id = ? AND EXISTS (
+                SELECT 1 FROM tournaments t
+                WHERE t.id = r.tournament_id AND t.archived_at IS NULL
+             )',
+            [$companyId],
+            true
+        );
     }
 
     private static function build(
@@ -113,7 +121,7 @@ final class RatingService
             }
             if ($myScore > $oppScore) {
                 $stats[$pid]['wins']++;
-            } else {
+            } elseif ($myScore < $oppScore) {
                 $stats[$pid]['losses']++;
             }
         }

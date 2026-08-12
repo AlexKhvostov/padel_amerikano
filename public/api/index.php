@@ -38,7 +38,8 @@ function route(string $method, string $uri): void
         try {
             db()->query('SELECT 1');
             db()->query('SELECT tournament_id FROM rounds LIMIT 0');
-            db()->query('SELECT id, updated_at FROM tournaments LIMIT 0');
+            db()->query('SELECT id, updated_at, archived_at FROM tournaments LIMIT 0');
+            db()->query('SELECT admin_email, password_recoverable FROM companies LIMIT 0');
             $dbOk = true;
         } catch (Throwable) {
             $dbOk = false;
@@ -90,6 +91,14 @@ function route(string $method, string $uri): void
         jsonResponse(CompanyService::login($body['name'] ?? '', $body['password'] ?? ''));
     }
 
+    if ($method === 'POST' && $uri === '/companies/remind-password') {
+        $body = readJsonBody();
+        jsonResponse(CompanyService::remindPassword(
+            (string) ($body['name'] ?? $body['company_name'] ?? ''),
+            (string) ($body['email'] ?? '')
+        ));
+    }
+
     if (
         preg_match('#^/viewer/([A-Za-z0-9_-]{12}|[a-f0-9]{64})$#', $uri, $m)
         && $method === 'GET'
@@ -133,6 +142,13 @@ function route(string $method, string $uri): void
         jsonResponse(['ok' => true]);
     }
 
+    if (preg_match('#^/companies/(\d+)/admin-email$#', $uri, $m) && $method === 'PUT') {
+        $id = (int) $m[1];
+        CompanyService::assertAccess($id, true);
+        $body = readJsonBody();
+        jsonResponse(CompanyService::updateAdminEmail($id, (string) ($body['email'] ?? '')));
+    }
+
     if (preg_match('#^/companies/(\d+)/settings$#', $uri, $m) && $method === 'PUT') {
         $id = (int) $m[1];
         CompanyService::assertAccess($id, true);
@@ -158,7 +174,11 @@ function route(string $method, string $uri): void
     if (preg_match('#^/companies/(\d+)/tournaments$#', $uri, $m)) {
         $companyId = (int) $m[1];
         if ($method === 'GET') {
-            jsonResponse(TournamentService::listForCompany($companyId));
+            $archived = isset($_GET['archived']) && (
+                $_GET['archived'] === '1'
+                || $_GET['archived'] === 'true'
+            );
+            jsonResponse(TournamentService::listForCompany($companyId, $archived));
         }
         if ($method === 'POST') {
             jsonResponse(TournamentService::create($companyId, readJsonBody()), 201);
@@ -213,6 +233,14 @@ function route(string $method, string $uri): void
     if (preg_match('#^/tournaments/(\d+)/reset$#', $uri, $m) && $method === 'DELETE') {
         TournamentService::reset((int) $m[1]);
         jsonResponse(['ok' => true]);
+    }
+
+    if (preg_match('#^/tournaments/(\d+)/archive$#', $uri, $m) && $method === 'POST') {
+        jsonResponse(TournamentService::archive((int) $m[1]));
+    }
+
+    if (preg_match('#^/tournaments/(\d+)/unarchive$#', $uri, $m) && $method === 'POST') {
+        jsonResponse(TournamentService::unarchive((int) $m[1]));
     }
 
     if (preg_match('#^/players/(\d+)$#', $uri, $m) && $method === 'PUT') {

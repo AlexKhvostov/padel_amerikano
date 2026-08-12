@@ -43,6 +43,7 @@ final class TournamentService
                 LEFT JOIN matches m ON m.round_id = r.id
                 LEFT JOIN match_scores ms ON ms.match_id = m.id
                 WHERE c.deleted_at IS NULL
+                  AND t.archived_at IS NULL
                 GROUP BY t.id, t.company_id, t.name, c.name, c.view_slug,
                          t.created_at, t.started_at, t.status";
 
@@ -68,12 +69,13 @@ final class TournamentService
         return ['tournaments' => $rows];
     }
 
-    public static function listForCompany(int $companyId): array
+    public static function listForCompany(int $companyId, bool $archived = false): array
     {
         CompanyService::assertAccess($companyId);
+        $archiveClause = $archived ? 't.archived_at IS NOT NULL' : 't.archived_at IS NULL';
         $stmt = db()->prepare(
             "SELECT t.id, t.company_id, t.name, t.status, t.settings,
-                    t.started_at, t.completed_at, t.created_at, t.updated_at,
+                    t.started_at, t.completed_at, t.created_at, t.updated_at, t.archived_at,
                     COUNT(DISTINCT tp.player_id) AS participants,
                     COUNT(DISTINCT m.id) AS total_matches,
                     COUNT(DISTINCT CASE WHEN ms.is_finished = 1 THEN m.id END) AS played_matches,
@@ -84,6 +86,7 @@ final class TournamentService
                         COALESCE(MAX(ms.updated_at), t.updated_at)
                     ) AS last_activity_at,
                     CASE
+                        WHEN t.archived_at IS NOT NULL THEN 'archived'
                         WHEN t.status = 'completed' THEN 'completed'
                         WHEN t.status = 'active' AND GREATEST(
                             t.updated_at,
@@ -102,9 +105,9 @@ final class TournamentService
              LEFT JOIN rounds r ON r.tournament_id = t.id
              LEFT JOIN matches m ON m.round_id = r.id
              LEFT JOIN match_scores ms ON ms.match_id = m.id
-             WHERE t.company_id = ?
+             WHERE t.company_id = ? AND $archiveClause
              GROUP BY t.id
-             ORDER BY FIELD(display_status, 'active', 'collecting', 'abandoned', 'draft', 'completed'),
+             ORDER BY FIELD(display_status, 'active', 'collecting', 'abandoned', 'draft', 'completed', 'archived'),
                       t.created_at DESC"
         );
         $stmt->execute([$companyId]);
@@ -112,7 +115,7 @@ final class TournamentService
         foreach ($rows as &$row) {
             $row = self::cast($row);
         }
-        return ['tournaments' => $rows];
+        return ['tournaments' => $rows, 'archived' => $archived];
     }
 
     public static function create(int $companyId, array $input): array
@@ -132,7 +135,16 @@ final class TournamentService
         }
         self::assertCompanyPlayers($companyId, $playerIds);
 
-        $courts = max(1, min(10, (int) ($input['courts_count'] ?? 1)));
+        $settings = normalizeTournamentSettings([
+            'courts_count' => (int) ($input['courts_count'] ?? 1),
+            'format' => (int) ($input['format'] ?? 24),
+            'allow_extra_ball' => array_key_exists('allow_extra_ball', $input)
+                ? filter_var($input['allow_extra_ball'], FILTER_VALIDATE_BOOLEAN)
+                : true,
+            'allow_draw' => array_key_exists('allow_draw', $input)
+                ? filter_var($input['allow_draw'], FILTER_VALIDATE_BOOLEAN)
+                : false,
+        ]);
         $pdo = db();
         $pdo->beginTransaction();
         try {
@@ -143,7 +155,7 @@ final class TournamentService
             $stmt->execute([
                 $companyId,
                 $name,
-                json_encode(['courts_count' => $courts], JSON_UNESCAPED_UNICODE),
+                json_encode($settings, JSON_UNESCAPED_UNICODE),
             ]);
             $tournamentId = (int) $pdo->lastInsertId();
             $insert = $pdo->prepare(
@@ -239,18 +251,75 @@ final class TournamentService
     {
         $companyId = self::companyId($tournamentId);
         CompanyService::assertAccess($companyId, true);
-        if (self::hasRounds($tournamentId)) {
-            jsonError('Турнир начат. Изменение настроек недоступно');
+        $current = self::get($tournamentId);
+        $locked = self::hasRounds($tournamentId);
+        $settings = normalizeTournamentSettings($current['settings'] ?? null);
+
+        if (array_key_exists('format', $input)) {
+            $settings['format'] = (int) $input['format'] === 16 ? 16 : 24;
         }
-        $settings = [
-            'courts_count' => max(1, min(10, (int) ($input['courts_count'] ?? 1))),
-        ];
-        $name = trim((string) ($input['name'] ?? ''));
-        if ($name === '' || mb_strlen($name) > 100) {
-            jsonError('Укажите название турнира до 100 символов');
+        if (array_key_exists('allow_extra_ball', $input)) {
+            $settings['allow_extra_ball'] = filter_var($input['allow_extra_ball'], FILTER_VALIDATE_BOOLEAN);
         }
+        if (array_key_exists('allow_draw', $input)) {
+            $settings['allow_draw'] = filter_var($input['allow_draw'], FILTER_VALIDATE_BOOLEAN);
+        }
+
+        $name = (string) ($current['name'] ?? '');
+        if (!$locked) {
+            if (array_key_exists('name', $input)) {
+                $name = trim((string) $input['name']);
+                if ($name === '' || mb_strlen($name) > 100) {
+                    jsonError('Укажите название турнира до 100 символов');
+                }
+            }
+            if (array_key_exists('courts_count', $input)) {
+                $settings['courts_count'] = max(1, min(10, (int) $input['courts_count']));
+            }
+        } elseif (
+            (array_key_exists('name', $input) && trim((string) $input['name']) !== $name)
+            || (
+                array_key_exists('courts_count', $input)
+                && (int) $input['courts_count'] !== (int) $settings['courts_count']
+            )
+        ) {
+            jsonError('После начала турнира название, состав и корты защищены от изменений');
+        }
+
         $stmt = db()->prepare('UPDATE tournaments SET name = ?, settings = ? WHERE id = ?');
         $stmt->execute([$name, json_encode($settings, JSON_UNESCAPED_UNICODE), $tournamentId]);
+        return self::get($tournamentId);
+    }
+
+    public static function archive(int $tournamentId): array
+    {
+        $companyId = self::companyId($tournamentId);
+        CompanyService::assertAccess($companyId, true);
+        $tournament = self::get($tournamentId);
+        if (!empty($tournament['archived_at'])) {
+            return $tournament;
+        }
+        if ($tournament['status'] === 'active') {
+            db()->prepare(
+                "UPDATE tournaments
+                 SET status = 'completed',
+                     completed_at = COALESCE(completed_at, NOW()),
+                     archived_at = NOW()
+                 WHERE id = ?"
+            )->execute([$tournamentId]);
+        } else {
+            db()->prepare('UPDATE tournaments SET archived_at = NOW() WHERE id = ?')
+                ->execute([$tournamentId]);
+        }
+        return self::get($tournamentId);
+    }
+
+    public static function unarchive(int $tournamentId): array
+    {
+        $companyId = self::companyId($tournamentId);
+        CompanyService::assertAccess($companyId, true);
+        db()->prepare('UPDATE tournaments SET archived_at = NULL WHERE id = ?')
+            ->execute([$tournamentId]);
         return self::get($tournamentId);
     }
 
@@ -273,17 +342,10 @@ final class TournamentService
     {
         $companyId = self::companyId($tournamentId);
         CompanyService::assertAccess($companyId, true);
-        $stmt = db()->prepare(
-            "DELETE FROM tournaments
-             WHERE id = ?
-               AND status = 'draft'
-               AND NOT EXISTS (
-                   SELECT 1 FROM rounds r WHERE r.tournament_id = tournaments.id
-               )"
-        );
+        $stmt = db()->prepare('DELETE FROM tournaments WHERE id = ?');
         $stmt->execute([$tournamentId]);
         if ($stmt->rowCount() !== 1) {
-            jsonError('Удалить можно только турнир, который ещё не начался');
+            jsonError('Турнир не найден', 404);
         }
     }
 
@@ -308,7 +370,7 @@ final class TournamentService
         CompanyService::assertAccess($companyId);
         $stmt = db()->prepare(
             "SELECT id FROM tournaments
-             WHERE company_id = ?
+             WHERE company_id = ? AND archived_at IS NULL
              ORDER BY FIELD(status, 'active', 'draft', 'completed'), created_at DESC
              LIMIT 1"
         );
@@ -341,7 +403,9 @@ final class TournamentService
         if ($settings === false) {
             jsonError('Турнир не найден', 404);
         }
-        return json_decode((string) $settings, true) ?: defaultSettings();
+        return normalizeTournamentSettings(
+            json_decode((string) $settings, true) ?: null
+        );
     }
 
     public static function markStarted(int $tournamentId): void
@@ -358,7 +422,7 @@ final class TournamentService
         $companyId = self::companyId($tournamentId);
         $stmt = db()->prepare(
             "SELECT COUNT(*) FROM tournaments
-             WHERE company_id = ? AND status = 'active' AND id <> ?"
+             WHERE company_id = ? AND status = 'active' AND id <> ? AND archived_at IS NULL"
         );
         $stmt->execute([$companyId, $tournamentId]);
         if ((int) $stmt->fetchColumn() > 0) {
@@ -411,9 +475,13 @@ final class TournamentService
                 $row[$key] = (int) $row[$key];
             }
         }
-        if (isset($row['settings']) && is_string($row['settings'])) {
-            $row['settings'] = json_decode($row['settings'], true) ?: defaultSettings();
+        if (isset($row['settings'])) {
+            $decoded = is_string($row['settings'])
+                ? (json_decode($row['settings'], true) ?: null)
+                : $row['settings'];
+            $row['settings'] = normalizeTournamentSettings(is_array($decoded) ? $decoded : null);
         }
+        $row['is_archived'] = !empty($row['archived_at']);
         unset($row['active_company_id']);
         return $row;
     }

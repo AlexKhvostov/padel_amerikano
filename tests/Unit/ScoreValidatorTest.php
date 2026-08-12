@@ -18,10 +18,27 @@ final class ScoreValidatorTest extends TestCase
     }
 
     #[DataProvider('standardScores')]
-    public function testStandardTotalsAreAccepted(int $a, int $b, int $total): void
+    public function testLegacyStandardTotalsAreAccepted(int $a, int $b, int $total): void
     {
         $result = ScoreValidator::validate($a, $b);
         self::assertSame($total, $result['total']);
+    }
+
+    public function testFormat24AcceptsExpectedTotals(): void
+    {
+        $settings = ['format' => 24, 'allow_extra_ball' => true, 'allow_draw' => false];
+        $result = ScoreValidator::validate(14, 10, false, $settings);
+        self::assertSame(24, $result['total']);
+    }
+
+    public function testFormat16Rejects24WithoutConfirm(): void
+    {
+        $this->expectException(ScoreConfirmationRequiredException::class);
+        ScoreValidator::validate(14, 10, false, [
+            'format' => 16,
+            'allow_extra_ball' => true,
+            'allow_draw' => false,
+        ]);
     }
 
     public function testNonStandardTotalRequiresConfirmation(): void
@@ -36,10 +53,26 @@ final class ScoreValidatorTest extends TestCase
         self::assertSame(15, $result['total']);
     }
 
-    public function testTieIsRejectedEvenWithConfirmation(): void
+    public function testTieRequiresConfirmationByDefault(): void
     {
-        $this->expectException(ScoreValidationException::class);
-        ScoreValidator::validate(8, 8, true);
+        $this->expectException(ScoreConfirmationRequiredException::class);
+        ScoreValidator::validate(12, 12);
+    }
+
+    public function testConfirmedTieIsAccepted(): void
+    {
+        $result = ScoreValidator::validate(12, 12, true);
+        self::assertSame(24, $result['total']);
+    }
+
+    public function testAllowedDrawPassesWithoutConfirmation(): void
+    {
+        $result = ScoreValidator::validate(12, 12, false, [
+            'format' => 24,
+            'allow_extra_ball' => true,
+            'allow_draw' => true,
+        ]);
+        self::assertSame(24, $result['total']);
     }
 
     public function testEmptyScoreIsRejected(): void

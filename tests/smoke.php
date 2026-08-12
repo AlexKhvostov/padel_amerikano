@@ -89,9 +89,16 @@ try {
 ScoreValidator::validate(12, 3, true);
 
 try {
-    ScoreValidator::validate(8, 8, true);
-    throw new RuntimeException('Ничья была принята');
-} catch (ScoreValidationException) {
+    ScoreValidator::validate(8, 8);
+    throw new RuntimeException('Ничья не запросила подтверждение');
+} catch (ScoreConfirmationRequiredException) {
 }
+
+ScoreValidator::validate(8, 8, true);
+ScoreValidator::validate(12, 12, false, [
+    'format' => 24,
+    'allow_extra_ball' => true,
+    'allow_draw' => true,
+]);
 
 echo "score validation: ok\n";

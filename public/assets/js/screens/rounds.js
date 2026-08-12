@@ -63,8 +63,10 @@ function renderRoundsContent(container, data, session, canEdit, reload, setEditi
         lastRound.is_complete &&
         schedule.rotation_complete === true;
 
+    maybeFlashRotationDone(session.tournamentId, rotationDone && canEdit);
+
     container.innerHTML = `
-        <header class="page-header">
+        <header class="page-header rounds-page-header">
             <div>
                 <span class="eyebrow">${escapeHtml(session.tournamentName || 'Турнир')}</span>
                 <h1>Раунды</h1>
@@ -84,7 +86,7 @@ function renderRoundsContent(container, data, session, canEdit, reload, setEditi
                     session.role === 'viewer'
                         ? '<span class="live-pill"><i></i> Просмотр</span>'
                         : lastRound
-                          ? `<span class="status-pill">${rotationDone ? 'Завершено' : `Раунд ${lastRound.round_number}`}</span>`
+                          ? `<span class="status-pill">${rotationDone ? 'Готово' : `R${lastRound.round_number}`}</span>`
                           : ''
                 }
                 ${
@@ -113,9 +115,9 @@ function renderRoundsContent(container, data, session, canEdit, reload, setEditi
             !canEdit
                 ? ''
                 : rotationDone
-                ? '<div class="success-box">Полная ротация завершена</div>'
-                : `<button class="btn btn-primary" id="btn-add-round" ${canAdvance ? '' : 'disabled'}>
-                    ${roundsList.length ? 'Следующий раунд →' : 'Начать полную ротацию'}
+                ? ''
+                : `<button class="btn btn-primary btn-round-advance" id="btn-add-round" ${canAdvance ? '' : 'disabled'}>
+                    ${roundsList.length ? 'Следующий раунд →' : 'Начать ротацию'}
                   </button>`
         }
         <div id="rounds-list" class="rounds-list"></div>
@@ -174,34 +176,53 @@ function renderScheduleSummary(schedule) {
                   schedule.maximum_games_per_player !== schedule.minimum_games_per_player
                       ? `–${schedule.maximum_games_per_player}`
                       : ''
-              }</strong><span>игр на игрока</span></div>`
+              }</strong><span>игр</span></div>`
             : '';
-    const repeatWarning = schedule.repeated_partnerships
-        ? '<p class="schedule-warning">Из-за количества игроков потребуется один повтор партнёрства.</p>'
-        : '';
+    if (schedule.repeated_partnerships) {
+        maybeFlashOnce('repeat-partnership-toast', 'Из-за числа игроков потребуется один повтор партнёрства');
+    }
     return `
         <div class="schedule-summary card">
-            <div><strong>${schedule.total_rounds}</strong><span>Раундов</span></div>
-            <div><strong>${schedule.total_matches}</strong><span>Матчей</span></div>
-            ${games || `<div><strong>${schedule.completed_rounds}</strong><span>завершено</span></div>`}
-            <div><strong>${schedule.covered_partnerships}/${schedule.total_partnerships}</strong><span>партнёрств</span></div>
+            <div><strong>${schedule.total_rounds}</strong><span>раундов</span></div>
+            <div><strong>${schedule.total_matches}</strong><span>матчей</span></div>
+            ${games || `<div><strong>${schedule.completed_rounds}</strong><span>готово</span></div>`}
+            <div><strong>${schedule.covered_partnerships}/${schedule.total_partnerships}</strong><span>пар</span></div>
         </div>
-        ${repeatWarning}
     `;
 }
 
+function maybeFlashOnce(key, message, isError = false) {
+    try {
+        if (sessionStorage.getItem(key) === '1') return;
+        sessionStorage.setItem(key, '1');
+    } catch {
+        // ignore
+    }
+    toast(message, isError);
+}
+
+function maybeFlashRotationDone(tournamentId, shouldShow) {
+    if (!shouldShow || !tournamentId) return;
+    maybeFlashOnce(`rotation-done-toast:${tournamentId}`, 'Полная ротация завершена');
+}
+
 function renderRound(round, expanded, canEdit) {
+    const matchCount = (round.matches || []).length;
     const bench = round.bench?.length
-        ? `<div class="bench-note">Пропускают раунд: ${round.bench
+        ? `<div class="bench-note">Отдых: ${round.bench
               .map((player) => escapeHtml(player.name))
               .join(', ')}</div>`
         : '';
 
     return `
-        <div class="card round-card ${round.is_complete ? 'round-complete' : ''}" data-round="${round.id}">
-            <button class="round-header" data-toggle="${round.id}" aria-expanded="${expanded}">
-                <span><small>РАУНД</small><strong>${round.round_number}</strong></span>
-                <span class="round-state">${round.is_complete ? 'Готово' : 'Активный'} <b>⌄</b></span>
+        <div class="card round-card ${round.is_complete ? 'round-complete' : ''} ${expanded ? 'is-open' : ''}" data-round="${round.id}">
+            <button class="round-header" data-toggle="${round.id}" aria-expanded="${expanded}" aria-controls="round-body-${round.id}">
+                <span class="round-num" aria-label="Раунд ${round.round_number}">${round.round_number}</span>
+                <span class="round-meta">
+                    <span class="round-meta-title">Раунд ${round.round_number}</span>
+                    <span class="round-meta-sub">${round.is_complete ? 'Готово' : 'Активный'} · ${matchCount} матч${matchCount === 1 ? '' : matchCount < 5 ? 'а' : 'ей'}</span>
+                </span>
+                <span class="round-collapse" aria-hidden="true">${expanded ? '▴' : '▾'}</span>
             </button>
             <div class="round-body ${expanded ? '' : 'hidden'}" id="round-body-${round.id}">
                 ${bench}
@@ -222,30 +243,32 @@ function renderMatch(match, canEdit) {
 
     return `
         <div class="match-card ${match.is_finished ? 'match-done' : ''}" data-match="${match.id}">
-            <div class="court">
-                <span class="court-main">Корт ${match.court_number}${editButton}</span>
-                ${match.is_finished ? '<span class="match-status">Завершён</span>' : '<span class="match-status active">Идёт</span>'}
-            </div>
-            <div class="match-line">
-                <div class="team blue"><span class="team-badge">A</span><span class="team-names">${team1}</span></div>
-                <div class="score-display">
-                    <strong>${match.is_finished ? match.score_team1 : '—'}</strong><span>:</span><strong>${match.is_finished ? match.score_team2 : '—'}</strong>
+            <aside class="match-meta">
+                <span class="court-label">К${match.court_number}</span>
+                ${match.is_finished ? '<span class="match-status">✓</span>' : '<span class="match-status active">●</span>'}
+                ${editButton}
+            </aside>
+            <div class="match-play">
+                <div class="match-line">
+                    <div class="team blue"><span class="team-badge">A</span><span class="team-names">${team1}</span></div>
+                    <div class="score-display">
+                        <strong>${match.is_finished ? match.score_team1 : '—'}</strong><span>:</span><strong>${match.is_finished ? match.score_team2 : '—'}</strong>
+                    </div>
+                    <div class="team red"><span class="team-names">${team2}</span><span class="team-badge">B</span></div>
                 </div>
-                <div class="team red"><span class="team-names">${team2}</span><span class="team-badge">B</span></div>
+                ${
+                    canEdit
+                        ? `<div class="score-editor ${match.is_finished ? 'hidden' : ''}">
+                    <div class="score-row">
+                        <input type="number" inputmode="numeric" class="score-1" value="${match.score_team1 ?? ''}" min="0" step="1" aria-label="Счёт синей команды">
+                        <span>:</span>
+                        <input type="number" inputmode="numeric" class="score-2" value="${match.score_team2 ?? ''}" min="0" step="1" aria-label="Счёт красной команды">
+                    </div>
+                    <button class="btn btn-secondary btn-save-score">OK</button>
+                </div>`
+                        : ''
+                }
             </div>
-            ${
-                canEdit
-                    ? `<div class="score-editor ${match.is_finished ? 'hidden' : ''}">
-                <div class="score-row">
-                    <input type="number" inputmode="numeric" class="score-1" value="${match.score_team1 ?? ''}" min="0" step="1" aria-label="Счёт синей команды">
-                    <span>:</span>
-                    <input type="number" inputmode="numeric" class="score-2" value="${match.score_team2 ?? ''}" min="0" step="1" aria-label="Счёт красной команды">
-                </div>
-                <button class="btn btn-secondary btn-save-score">Сохранить</button>
-            </div>
-                    `
-                    : ''
-            }
         </div>`;
 }
 
@@ -323,16 +346,22 @@ function renderGridTeam(players) {
 function bindRoundEvents(container, canEdit, reload, setEditing) {
     container.querySelectorAll('[data-toggle]').forEach((header) => {
         header.addEventListener('click', () => {
+            const card = header.closest('.round-card');
             const body = container.querySelector(`#round-body-${header.dataset.toggle}`);
             body?.classList.toggle('hidden');
-            header.setAttribute('aria-expanded', String(!body?.classList.contains('hidden')));
+            const open = body && !body.classList.contains('hidden');
+            header.setAttribute('aria-expanded', String(open));
+            card?.classList.toggle('is-open', open);
+            const collapse = header.querySelector('.round-collapse');
+            if (collapse) collapse.textContent = open ? '▴' : '▾';
         });
     });
 
     if (!canEdit) return;
 
     container.querySelectorAll('[data-match]').forEach((card) => {
-        card.querySelector('.btn-edit-score')?.addEventListener('click', () => {
+        card.querySelector('.btn-edit-score')?.addEventListener('click', (event) => {
+            event.stopPropagation();
             card.querySelector('.score-editor')?.classList.remove('hidden');
             card.querySelector('.btn-edit-score')?.classList.add('hidden');
             setEditing(true);
@@ -376,9 +405,7 @@ async function saveScoreWithConfirmation(matchId, score1, score2) {
             throw e;
         }
 
-        const confirmed = confirmAction(
-            `${e.message}\n\nСохранить нестандартный счёт?`
-        );
+        const confirmed = confirmAction(e.message);
         if (!confirmed) {
             throw new Error('Сохранение отменено');
         }

@@ -44,6 +44,7 @@ final class PlayerService
                 FROM match_players mp
                 JOIN matches m ON m.id = mp.match_id
                 JOIN rounds r ON r.id = m.round_id
+                JOIN tournaments t ON t.id = r.tournament_id AND t.archived_at IS NULL
                 JOIN match_scores ms ON ms.match_id = m.id AND ms.is_finished = 1
                 GROUP BY mp.player_id
              ) s ON s.player_id = p.id
@@ -231,6 +232,7 @@ final class PlayerService
              FROM match_players mp
              JOIN matches m ON m.id = mp.match_id
              JOIN rounds r ON r.id = m.round_id
+             JOIN tournaments t ON t.id = r.tournament_id AND t.archived_at IS NULL
              JOIN match_scores ms ON ms.match_id = m.id AND ms.is_finished = 1
              WHERE mp.player_id = ?'
         );

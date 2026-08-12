@@ -12,12 +12,14 @@ final class ScoreService
     {
         $match = self::getMatch($matchId);
         CompanyService::assertAccess($match['company_id'], true);
+        $settings = TournamentService::settings((int) $match['tournament_id']);
 
         try {
             $validated = ScoreValidator::validate(
                 $input['score_team1'] ?? null,
                 $input['score_team2'] ?? null,
-                ($input['confirm_invalid_total'] ?? false) === true
+                ($input['confirm_invalid_total'] ?? false) === true,
+                $settings
             );
         } catch (ScoreConfirmationRequiredException $e) {
             jsonError(
@@ -26,7 +28,7 @@ final class ScoreService
                 [
                     'code' => 'SCORE_TOTAL_CONFIRM_REQUIRED',
                     'total' => $e->total,
-                    'allowed_totals' => ScoreValidator::STANDARD_TOTALS,
+                    'allowed_totals' => $e->allowedTotals,
                 ]
             );
         } catch (ScoreValidationException $e) {
@@ -88,12 +90,8 @@ final class ScoreService
              WHERE m.round_id = ?'
         );
         $stmt->execute([$roundId]);
-        $state = $stmt->fetch();
-
-        if (
-            (int) $state['total'] > 0
-            && (int) $state['total'] === (int) $state['finished']
-        ) {
+        $row = $stmt->fetch() ?: ['total' => 0, 'finished' => 0];
+        if ((int) $row['total'] > 0 && (int) $row['total'] === (int) $row['finished']) {
             $update = db()->prepare("UPDATE rounds SET status = 'completed' WHERE id = ?");
             $update->execute([$roundId]);
         }

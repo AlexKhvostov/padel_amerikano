@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 require_once dirname(__DIR__) . '/Auth/Token.php';
 require_once dirname(__DIR__) . '/Services/LoginGuard.php';
+require_once dirname(__DIR__) . '/Support/SecretCrypto.php';
+require_once dirname(__DIR__) . '/Support/Mailer.php';
 require_once dirname(__DIR__, 2) . '/config/database.php';
 require_once dirname(__DIR__, 2) . '/config/app.php';
 
@@ -31,6 +33,7 @@ final class CompanyService
                 FROM tournaments active_t
                 WHERE active_t.company_id = c.id
                   AND active_t.status = 'active'
+                  AND active_t.archived_at IS NULL
                   AND GREATEST(
                       active_t.updated_at,
                       COALESCE((
@@ -49,12 +52,15 @@ final class CompanyService
             ) THEN 'active'
             WHEN EXISTS (
                 SELECT 1 FROM tournaments abandoned_t
-                WHERE abandoned_t.company_id = c.id AND abandoned_t.status = 'active'
+                WHERE abandoned_t.company_id = c.id
+                  AND abandoned_t.status = 'active'
+                  AND abandoned_t.archived_at IS NULL
             ) THEN 'abandoned'
             WHEN EXISTS (
                 SELECT 1 FROM tournaments draft_t
                 WHERE draft_t.company_id = c.id
                   AND draft_t.status = 'draft'
+                  AND draft_t.archived_at IS NULL
                   AND draft_t.updated_at >= CURRENT_TIMESTAMP - INTERVAL 1 HOUR
             ) THEN 'collecting'
             ELSE 'idle'
@@ -109,18 +115,18 @@ final class CompanyService
                     (SELECT COUNT(*) FROM players p
                      WHERE p.company_id = c.id AND p.is_active = 1) AS participants,
                     (SELECT COUNT(*) FROM tournaments t
-                     WHERE t.company_id = c.id) AS tournaments_count,
+                     WHERE t.company_id = c.id AND t.archived_at IS NULL) AS tournaments_count,
                     (SELECT COUNT(*)
                      FROM tournaments t
                      JOIN rounds r ON r.tournament_id = t.id
                      JOIN matches m ON m.round_id = r.id
-                     WHERE t.company_id = c.id) AS total_matches,
+                     WHERE t.company_id = c.id AND t.archived_at IS NULL) AS total_matches,
                     (SELECT COUNT(*)
                      FROM tournaments t
                      JOIN rounds r ON r.tournament_id = t.id
                      JOIN matches m ON m.round_id = r.id
                      JOIN match_scores ms ON ms.match_id = m.id AND ms.is_finished = 1
-                     WHERE t.company_id = c.id) AS played_matches,
+                     WHERE t.company_id = c.id AND t.archived_at IS NULL) AS played_matches,
                     $activitySql AS activity_status,
                     GREATEST(
                         c.created_at,
@@ -191,6 +197,12 @@ final class CompanyService
 
         $plainPassword = (string) random_int(1000, 999999);
         $hash = password_hash($plainPassword, PASSWORD_BCRYPT);
+        $recoverable = null;
+        try {
+            $recoverable = SecretCrypto::encrypt($plainPassword);
+        } catch (Throwable) {
+            $recoverable = null;
+        }
         $viewToken = bin2hex(random_bytes(32));
         $viewSlug = rtrim(strtr(base64_encode(random_bytes(9)), '+/', '-_'), '=');
         $settings = json_encode(defaultSettings(), JSON_UNESCAPED_UNICODE);
@@ -198,10 +210,17 @@ final class CompanyService
         try {
             $stmt = db()->prepare(
                 'INSERT INTO companies
-                    (name, password, view_token, view_slug, settings)
-                 VALUES (?, ?, ?, ?, ?)'
+                    (name, password, password_recoverable, view_token, view_slug, settings)
+                 VALUES (?, ?, ?, ?, ?, ?)'
             );
-            $stmt->execute([$name, $hash, $viewToken, $viewSlug, $settings]);
+            $stmt->execute([
+                $name,
+                $hash,
+                $recoverable,
+                $viewToken,
+                $viewSlug,
+                $settings,
+            ]);
         } catch (PDOException $e) {
             if ($e->getCode() === '23000') {
                 jsonError('Компания с таким названием уже существует');
@@ -241,6 +260,7 @@ final class CompanyService
         }
 
         LoginGuard::recordSuccess($name);
+        self::storeRecoverablePassword((int) $company['id'], $password);
         $settings = json_decode($company['settings'], true) ?: defaultSettings();
 
         return [
@@ -252,13 +272,14 @@ final class CompanyService
             'role' => 'admin',
             'token' => Token::create((int) $company['id']),
             'settings' => $settings,
+            'admin_email' => $company['admin_email'] ?? null,
         ];
     }
 
     public static function get(int $companyId): array
     {
         $stmt = db()->prepare(
-            'SELECT id, name, view_token, view_slug, settings, created_at
+            'SELECT id, name, view_token, view_slug, settings, admin_email, created_at
              FROM companies WHERE id = ? AND deleted_at IS NULL'
         );
         $stmt->execute([$companyId]);
@@ -268,6 +289,7 @@ final class CompanyService
         }
         $company['id'] = (int) $company['id'];
         $company['settings'] = json_decode($company['settings'], true) ?: defaultSettings();
+        $company['admin_email'] = $company['admin_email'] ?: null;
         $company['tournament_started'] = self::isTournamentStarted($companyId);
         return $company;
     }
@@ -389,8 +411,102 @@ final class CompanyService
         }
 
         $newHash = password_hash($newPassword, PASSWORD_BCRYPT);
-        $stmt = db()->prepare('UPDATE companies SET password = ? WHERE id = ?');
-        $stmt->execute([$newHash, $companyId]);
+        $recoverable = null;
+        try {
+            $recoverable = SecretCrypto::encrypt($newPassword);
+        } catch (Throwable) {
+            $recoverable = null;
+        }
+        $stmt = db()->prepare(
+            'UPDATE companies SET password = ?, password_recoverable = ? WHERE id = ?'
+        );
+        $stmt->execute([$newHash, $recoverable, $companyId]);
+    }
+
+    public static function updateAdminEmail(int $companyId, string $email): array
+    {
+        $email = trim($email);
+        if ($email === '') {
+            $stmt = db()->prepare(
+                'UPDATE companies SET admin_email = NULL WHERE id = ? AND deleted_at IS NULL'
+            );
+            $stmt->execute([$companyId]);
+            return ['admin_email' => null];
+        }
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL) || mb_strlen($email) > 255) {
+            jsonError('Укажите корректный email');
+        }
+        $stmt = db()->prepare(
+            'UPDATE companies SET admin_email = ? WHERE id = ? AND deleted_at IS NULL'
+        );
+        $stmt->execute([$email, $companyId]);
+        if ($stmt->rowCount() !== 1) {
+            $check = db()->prepare(
+                'SELECT COUNT(*) FROM companies
+                 WHERE id = ? AND admin_email = ? AND deleted_at IS NULL'
+            );
+            $check->execute([$companyId, $email]);
+            if ((int) $check->fetchColumn() !== 1) {
+                jsonError('Компания не найдена', 404);
+            }
+        }
+        return ['admin_email' => $email];
+    }
+
+    public static function remindPassword(string $companyName, string $email): array
+    {
+        $companyName = trim($companyName);
+        $email = trim($email);
+        $genericError = static function (): void {
+            jsonError('Данные неверны', 400);
+        };
+
+        if ($companyName === '' || $email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $genericError();
+        }
+
+        $stmt = db()->prepare(
+            'SELECT id, admin_email, password_recoverable
+             FROM companies
+             WHERE deleted_at IS NULL AND name = ?
+             LIMIT 1'
+        );
+        $stmt->execute([$companyName]);
+        $company = $stmt->fetch();
+        if (
+            !$company
+            || strcasecmp((string) ($company['admin_email'] ?? ''), $email) !== 0
+        ) {
+            $genericError();
+        }
+
+        $password = SecretCrypto::decrypt($company['password_recoverable'] ?? null);
+        if ($password === null) {
+            $genericError();
+        }
+
+        $sent = Mailer::send(
+            $email,
+            'Код доступа — Падел Американо',
+            "Компания: {$companyName}\nКод администратора: {$password}\n\nЕсли вы не запрашивали код, проигнорируйте это письмо."
+        );
+        if (!$sent) {
+            jsonError('Не удалось отправить письмо. Попробуйте позже.', 500);
+        }
+
+        return ['ok' => true];
+    }
+
+    private static function storeRecoverablePassword(int $companyId, string $plainPassword): void
+    {
+        try {
+            $stmt = db()->prepare(
+                'UPDATE companies SET password_recoverable = ? WHERE id = ? AND deleted_at IS NULL'
+            );
+            $stmt->execute([SecretCrypto::encrypt($plainPassword), $companyId]);
+        } catch (Throwable) {
+            // Не блокируем вход, если колонка ещё не задеплоена или APP_SECRET пуст.
+        }
     }
 
     public static function reset(int $companyId): void

@@ -184,7 +184,7 @@ function showCredentials(container, data, navigate) {
                 <div class="password">${escapeHtml(data.password)}</div>
             </div>
             <div class="credentials-warning">
-                Обязательно сохраните код. Без него нельзя управлять компанией или восстановить доступ.
+                Сохраните код. Позже его можно запросить на email, если указать email в настройках компании.
             </div>
             <div class="button-stack">
                 <button class="btn btn-secondary" id="btn-save-telegram">Сохранить себе в Telegram</button>
@@ -203,7 +203,7 @@ function showCredentials(container, data, navigate) {
             'Данные администратора Падел Американо',
             `Компания: ${data.name}`,
             `Код администратора: ${data.password}`,
-            'Сохраните это сообщение. Код потребуется для управления турниром.',
+            'Сохраните это сообщение. Код потребуется для управления турниром. При необходимости его можно запросить на email администратора.',
         ].join('\n');
         const telegram = new URL('https://t.me/share/url');
         telegram.searchParams.set('url', `${window.location.origin}/`);

@@ -23,6 +23,8 @@ CREATE TABLE companies (
     view_token  CHAR(64) NOT NULL,
     view_slug   CHAR(12) NOT NULL,
     settings    JSON NOT NULL,
+    admin_email VARCHAR(255) NULL,
+    password_recoverable TEXT NULL,
     created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
     deleted_at  DATETIME NULL,
     active_name VARCHAR(100) GENERATED ALWAYS AS (
@@ -55,12 +57,14 @@ CREATE TABLE tournaments (
     completed_at DATETIME NULL,
     created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    archived_at DATETIME NULL,
     active_company_id INT GENERATED ALWAYS AS (
         CASE WHEN status = 'active' THEN company_id ELSE NULL END
     ) VIRTUAL,
     FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE,
     UNIQUE KEY uq_tournaments_one_active (active_company_id),
-    INDEX idx_tournaments_company_status (company_id, status, created_at)
+    INDEX idx_tournaments_company_status (company_id, status, created_at),
+    INDEX idx_tournaments_company_archived (company_id, archived_at, status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE tournament_players (

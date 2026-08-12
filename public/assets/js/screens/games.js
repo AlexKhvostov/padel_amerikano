@@ -306,6 +306,7 @@ function showLoginForm(dialog, companyName, actions) {
                 <input id="modal-login-password" inputmode="numeric" placeholder="4–8 цифр" autocomplete="one-time-code">
             </div>
             <button class="btn btn-primary" type="submit">Войти в компанию</button>
+            <button class="btn btn-ghost" type="button" id="btn-remind-password">Напомнить пароль</button>
         </form>
     `;
     openDialog(dialog);
@@ -321,6 +322,41 @@ function showLoginForm(dialog, companyName, actions) {
             toast(error.message, true);
         }
     });
+    body.querySelector('#btn-remind-password').addEventListener('click', () => {
+        showRemindForm(dialog, companyName, actions);
+    });
+}
+
+function showRemindForm(dialog, companyName, actions) {
+    dialog.querySelector('#company-auth-title').textContent = 'Напомнить пароль';
+    const body = dialog.querySelector('#company-auth-body');
+    body.innerHTML = `
+        <form id="company-remind-form">
+            <p class="company-auth-note">Укажите email администратора компании «${escapeHtml(companyName)}».</p>
+            <div class="field">
+                <label for="modal-remind-email">Email</label>
+                <input id="modal-remind-email" type="email" placeholder="admin@example.com" autocomplete="email">
+            </div>
+            <button class="btn btn-primary" type="submit">Отправить код</button>
+            <button class="btn btn-ghost" type="button" id="btn-back-to-login">Назад ко входу</button>
+        </form>
+    `;
+    body.querySelector('#company-remind-form').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        try {
+            await companies.remindPassword(
+                companyName,
+                body.querySelector('#modal-remind-email').value.trim()
+            );
+            toast('Код отправлен на email');
+            showLoginForm(dialog, companyName, actions);
+        } catch (error) {
+            toast(error.message, true);
+        }
+    });
+    body.querySelector('#btn-back-to-login').addEventListener('click', () => {
+        showLoginForm(dialog, companyName, actions);
+    });
 }
 
 function showCredentials(dialog, session, actions) {
@@ -331,7 +367,7 @@ function showCredentials(dialog, session, actions) {
             <span>Компания</span><strong>${escapeHtml(session.name)}</strong>
             <span>Код администратора</span><b>${escapeHtml(session.password)}</b>
         </div>
-        <p class="company-auth-note warning">Сохраните код: восстановить его автоматически нельзя.</p>
+        <p class="company-auth-note warning">Сохраните код. Его можно будет запросить на email, если указать email в настройках компании.</p>
         <div class="button-stack">
             <button class="btn btn-secondary" id="btn-modal-save-telegram">Сохранить в Telegram</button>
             <button class="btn btn-ghost" id="btn-modal-share">Поделиться просмотром</button>

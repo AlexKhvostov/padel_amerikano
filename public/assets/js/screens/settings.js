@@ -62,6 +62,10 @@ export async function renderSettings(container, navigate) {
                 <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="15" r="4"/><path d="m11 12 8-8M16 7l2 2M14 9l2 2"/></svg>
                 <span><strong>Изменить код</strong><small>4–8 цифр</small></span>
             </button>
+            <button class="company-edit-action" id="btn-show-email-form">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16v12H4z"/><path d="m4 7 8 6 8-6"/></svg>
+                <span><strong>Email администратора</strong><small>${escapeHtml(company.admin_email || 'не указан')}</small></span>
+            </button>
         </div>
         <form class="card company-name-change-card hidden" id="company-name-form">
             <div class="field">
@@ -94,6 +98,17 @@ export async function renderSettings(container, navigate) {
                 <button type="submit" class="btn btn-primary">Сохранить код</button>
             </div>
         </form>
+        <form class="card company-email-card hidden" id="company-email-form">
+            <div class="field">
+                <label for="admin-email-input">Email для напоминания кода</label>
+                <input id="admin-email-input" type="email" maxlength="255" value="${escapeHtml(company.admin_email || '')}" placeholder="admin@example.com" autocomplete="email">
+            </div>
+            <p>Если указать email, на экране входа можно запросить текущий код комнаты.</p>
+            <div class="button-row">
+                <button type="button" class="btn btn-ghost" id="btn-cancel-email">Отмена</button>
+                <button type="submit" class="btn btn-primary">Сохранить email</button>
+            </div>
+        </form>
 
         <div class="company-danger-zone">
             <button class="company-logout-button" id="btn-logout">
@@ -112,9 +127,16 @@ export async function renderSettings(container, navigate) {
 
     const nameForm = container.querySelector('#company-name-form');
     const passwordForm = container.querySelector('#password-change-form');
-    container.querySelector('#btn-show-name-form').addEventListener('click', () => {
+    const emailForm = container.querySelector('#company-email-form');
+    const hideForms = () => {
+        nameForm.classList.add('hidden');
         passwordForm.classList.add('hidden');
-        nameForm.classList.toggle('hidden');
+        emailForm.classList.add('hidden');
+    };
+    container.querySelector('#btn-show-name-form').addEventListener('click', () => {
+        const open = nameForm.classList.contains('hidden');
+        hideForms();
+        if (open) nameForm.classList.remove('hidden');
     });
     container.querySelector('#btn-cancel-name').addEventListener('click', () => {
         nameForm.reset();
@@ -151,8 +173,9 @@ export async function renderSettings(container, navigate) {
     });
 
     container.querySelector('#btn-show-password-form').addEventListener('click', () => {
-        nameForm.classList.add('hidden');
-        passwordForm.classList.toggle('hidden');
+        const open = passwordForm.classList.contains('hidden');
+        hideForms();
+        if (open) passwordForm.classList.remove('hidden');
     });
     container.querySelector('#btn-cancel-password').addEventListener('click', () => {
         passwordForm.reset();
@@ -172,6 +195,29 @@ export async function renderSettings(container, navigate) {
             session.password = newPassword;
             setSession(session);
             toast('Код администратора изменён');
+            renderSettings(container, navigate);
+        } catch (e) {
+            toast(e.message, true);
+        }
+    });
+
+    container.querySelector('#btn-show-email-form').addEventListener('click', () => {
+        const open = emailForm.classList.contains('hidden');
+        hideForms();
+        if (open) emailForm.classList.remove('hidden');
+    });
+    container.querySelector('#btn-cancel-email').addEventListener('click', () => {
+        emailForm.reset();
+        emailForm.classList.add('hidden');
+    });
+    emailForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        try {
+            await companies.updateAdminEmail(
+                session.id,
+                container.querySelector('#admin-email-input').value.trim()
+            );
+            toast('Email администратора сохранён');
             renderSettings(container, navigate);
         } catch (e) {
             toast(e.message, true);

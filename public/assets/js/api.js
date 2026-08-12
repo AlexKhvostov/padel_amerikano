@@ -48,6 +48,11 @@ export const companies = {
     create: (name) => api('/companies', { method: 'POST', body: JSON.stringify({ name }) }),
     login: (name, password) =>
         api('/companies/login', { method: 'POST', body: JSON.stringify({ name, password }) }),
+    remindPassword: (name, email) =>
+        api('/companies/remind-password', {
+            method: 'POST',
+            body: JSON.stringify({ name, email }),
+        }),
     view: (token) => api(`/viewer/${encodeURIComponent(token)}`),
     get: (id) => api(`/companies/${id}`),
     rename: (id, name) =>
@@ -59,6 +64,11 @@ export const companies = {
                 current_password: currentPassword,
                 new_password: newPassword,
             }),
+        }),
+    updateAdminEmail: (id, email) =>
+        api(`/companies/${id}/admin-email`, {
+            method: 'PUT',
+            body: JSON.stringify({ email }),
         }),
     updateSettings: (id, settings) =>
         api(`/companies/${id}/settings`, { method: 'PUT', body: JSON.stringify(settings) }),
@@ -103,7 +113,11 @@ export const rating = {
 export const tournaments = {
     publicList: (date = '', silent = false) =>
         api(`/tournaments${date ? `?date=${encodeURIComponent(date)}` : ''}`, { silent }),
-    list: (companyId, silent = false) => api(`/companies/${companyId}/tournaments`, { silent }),
+    list: (companyId, silent = false, archived = false) =>
+        api(
+            `/companies/${companyId}/tournaments${archived ? '?archived=1' : ''}`,
+            { silent }
+        ),
     create: (companyId, data) =>
         api(`/companies/${companyId}/tournaments`, {
             method: 'POST',
@@ -120,4 +134,6 @@ export const tournaments = {
         }),
     remove: (id) => api(`/tournaments/${id}`, { method: 'DELETE' }),
     reset: (id) => api(`/tournaments/${id}/reset`, { method: 'DELETE' }),
+    archive: (id) => api(`/tournaments/${id}/archive`, { method: 'POST' }),
+    unarchive: (id) => api(`/tournaments/${id}/unarchive`, { method: 'POST' }),
 };

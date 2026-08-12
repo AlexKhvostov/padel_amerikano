@@ -167,6 +167,10 @@ function route(string $method, string $uri): void
         jsonResponse(PlayerService::list((int) $m[1]));
     }
 
+    if (preg_match('#^/companies/(\d+)/rating-timeline$#', $uri, $m) && $method === 'GET') {
+        jsonResponse(PlayerService::ratingTimeline((int) $m[1]));
+    }
+
     if (preg_match('#^/companies/(\d+)/players$#', $uri, $m) && $method === 'POST') {
         jsonResponse(PlayerService::create((int) $m[1], readJsonBody()), 201);
     }
@@ -241,6 +245,10 @@ function route(string $method, string $uri): void
 
     if (preg_match('#^/tournaments/(\d+)/unarchive$#', $uri, $m) && $method === 'POST') {
         jsonResponse(TournamentService::unarchive((int) $m[1]));
+    }
+
+    if (preg_match('#^/tournaments/(\d+)/clone$#', $uri, $m) && $method === 'POST') {
+        jsonResponse(TournamentService::clone((int) $m[1]), 201);
     }
 
     if (preg_match('#^/players/(\d+)$#', $uri, $m) && $method === 'PUT') {

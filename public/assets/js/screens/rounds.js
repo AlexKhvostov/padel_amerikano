@@ -1,5 +1,5 @@
-import { rounds, matches } from '../api.js';
-import { getSession } from '../storage.js';
+import { rounds, matches, tournaments } from '../api.js';
+import { getSession, setActiveTournament } from '../storage.js';
 import { toast, escapeHtml, renderError, confirmAction } from '../ui.js';
 import { showTournamentRules } from '../tournament-rules.js';
 
@@ -62,6 +62,11 @@ function renderRoundsContent(container, data, session, canEdit, reload, setEditi
         !!lastRound &&
         lastRound.is_complete &&
         schedule.rotation_complete === true;
+    const tournamentMeta = data.tournament || {};
+    const canClone =
+        canEdit &&
+        tournamentMeta.status === 'completed' &&
+        !tournamentMeta.is_archived;
 
     maybeFlashRotationDone(session.tournamentId, rotationDone && canEdit);
 
@@ -111,16 +116,18 @@ function renderRoundsContent(container, data, session, canEdit, reload, setEditi
             </div>
         </header>
         ${renderScheduleSummary(schedule)}
+        <div id="rounds-list" class="rounds-list"></div>
         ${
             !canEdit
                 ? ''
+                : canClone
+                ? `<button type="button" class="btn btn-primary btn-round-advance" id="btn-repeat-tournament">Начать новый турнир</button>`
                 : rotationDone
                 ? ''
                 : `<button class="btn btn-primary btn-round-advance" id="btn-add-round" ${canAdvance ? '' : 'disabled'}>
                     ${roundsList.length ? 'Следующий раунд →' : 'Начать ротацию'}
                   </button>`
         }
-        <div id="rounds-list" class="rounds-list"></div>
         <dialog class="schedule-dialog" id="schedule-dialog">
             <div class="schedule-dialog-head">
                 <div><span class="eyebrow">Полная ротация</span><h2>Сетка игр</h2></div>
@@ -163,6 +170,19 @@ function renderRoundsContent(container, data, session, canEdit, reload, setEditi
     });
     container.querySelector('#btn-tournament-rules').addEventListener('click', () => {
         showTournamentRules();
+    });
+    container.querySelector('#btn-repeat-tournament')?.addEventListener('click', async (event) => {
+        const button = event.currentTarget;
+        button.disabled = true;
+        try {
+            const created = await tournaments.clone(session.tournamentId);
+            setActiveTournament(created);
+            toast(`Создан турнир «${created.name}»`);
+            navigate?.('rounds');
+        } catch (e) {
+            button.disabled = false;
+            toast(e.message, true);
+        }
     });
 
     bindScheduleDialog(container, session.tournamentId);
@@ -207,7 +227,15 @@ function maybeFlashRotationDone(tournamentId, shouldShow) {
 }
 
 function renderRound(round, expanded, canEdit) {
-    const matchCount = (round.matches || []).length;
+    const matches = round.matches || [];
+    const matchCount = matches.length;
+    const finishedCount = matches.filter((match) => match.is_finished).length;
+    const courts = [...new Set(matches.map((match) => match.court_number))].sort((a, b) => a - b);
+    const courtLabel = courts.length
+        ? (courts.length === 1 ? `Корт ${courts[0]}` : `Корты ${courts[0]}–${courts[courts.length - 1]}`)
+        : 'Без кортов';
+    const statusLabel = round.is_complete ? 'Готово' : 'Активный';
+    const progressLabel = `${finishedCount}/${matchCount} ${pluralMatches(matchCount)}`;
     const bench = round.bench?.length
         ? `<div class="bench-note">Отдых: ${round.bench
               .map((player) => escapeHtml(player.name))
@@ -220,40 +248,48 @@ function renderRound(round, expanded, canEdit) {
                 <span class="round-num" aria-label="Раунд ${round.round_number}">${round.round_number}</span>
                 <span class="round-meta">
                     <span class="round-meta-title">Раунд ${round.round_number}</span>
-                    <span class="round-meta-sub">${round.is_complete ? 'Готово' : 'Активный'} · ${matchCount} матч${matchCount === 1 ? '' : matchCount < 5 ? 'а' : 'ей'}</span>
+                    <span class="round-meta-sub">${statusLabel} · ${progressLabel} · ${courtLabel}</span>
                 </span>
                 <span class="round-collapse" aria-hidden="true">${expanded ? '▴' : '▾'}</span>
             </button>
             <div class="round-body ${expanded ? '' : 'hidden'}" id="round-body-${round.id}">
                 ${bench}
-                ${(round.matches || []).map((match) => renderMatch(match, canEdit)).join('')}
+                ${matches.map((match) => renderMatch(match, canEdit)).join('')}
             </div>
         </div>`;
+}
+
+function pluralMatches(count) {
+    const mod10 = count % 10;
+    const mod100 = count % 100;
+    if (mod10 === 1 && mod100 !== 11) return 'матч';
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'матча';
+    return 'матчей';
 }
 
 function renderMatch(match, canEdit) {
     const team1 = renderTeamNames(match.teams[1]);
     const team2 = renderTeamNames(match.teams[2]);
-    const editButton =
-        canEdit && match.is_finished
-            ? `<button class="match-edit-icon btn-edit-score" aria-label="Изменить счёт на корте ${match.court_number}">
-                   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg>
-               </button>`
-            : '';
+    const scoreInteractive = canEdit && match.is_finished;
 
     return `
         <div class="match-card ${match.is_finished ? 'match-done' : ''}" data-match="${match.id}">
             <aside class="match-meta">
                 <span class="court-label">К${match.court_number}</span>
                 ${match.is_finished ? '<span class="match-status">✓</span>' : '<span class="match-status active">●</span>'}
-                ${editButton}
             </aside>
             <div class="match-play">
                 <div class="match-line">
                     <div class="team blue"><span class="team-badge">A</span><span class="team-names">${team1}</span></div>
-                    <div class="score-display">
-                        <strong>${match.is_finished ? match.score_team1 : '—'}</strong><span>:</span><strong>${match.is_finished ? match.score_team2 : '—'}</strong>
-                    </div>
+                    ${
+                        scoreInteractive
+                            ? `<button type="button" class="score-display score-edit-trigger btn-edit-score" aria-label="Изменить счёт ${match.score_team1}:${match.score_team2}">
+                                   <strong>${match.score_team1}</strong><span>:</span><strong>${match.score_team2}</strong>
+                               </button>`
+                            : `<div class="score-display">
+                                   <strong>${match.is_finished ? match.score_team1 : '—'}</strong><span>:</span><strong>${match.is_finished ? match.score_team2 : '—'}</strong>
+                               </div>`
+                    }
                     <div class="team red"><span class="team-names">${team2}</span><span class="team-badge">B</span></div>
                 </div>
                 ${
@@ -362,10 +398,7 @@ function bindRoundEvents(container, canEdit, reload, setEditing) {
     container.querySelectorAll('[data-match]').forEach((card) => {
         card.querySelector('.btn-edit-score')?.addEventListener('click', (event) => {
             event.stopPropagation();
-            card.querySelector('.score-editor')?.classList.remove('hidden');
-            card.querySelector('.btn-edit-score')?.classList.add('hidden');
-            setEditing(true);
-            card.querySelector('.score-1')?.focus();
+            startScoreEdit(card, setEditing);
         });
 
         const editor = card.querySelector('.score-editor');
@@ -395,6 +428,20 @@ function bindRoundEvents(container, canEdit, reload, setEditing) {
             }
         });
     });
+}
+
+function startScoreEdit(card, setEditing) {
+    const trigger = card.querySelector('.btn-edit-score');
+    if (trigger) {
+        trigger.classList.add('is-placeholder');
+        trigger.setAttribute('aria-hidden', 'true');
+        trigger.tabIndex = -1;
+        trigger.innerHTML = '<strong>—</strong><span>:</span><strong>—</strong>';
+    }
+    card.querySelector('.score-editor')?.classList.remove('hidden');
+    card.querySelector('.match-line')?.classList.add('editing');
+    setEditing(true);
+    card.querySelector('.score-1')?.focus();
 }
 
 async function saveScoreWithConfirmation(matchId, score1, score2) {

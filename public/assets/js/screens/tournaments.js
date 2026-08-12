@@ -120,6 +120,21 @@ function renderView(container, items, canEdit, navigate, reload, showArchived, s
             }
         });
     });
+    container.querySelectorAll('[data-clone-tournament]').forEach((button) => {
+        button.addEventListener('click', async (event) => {
+            event.stopPropagation();
+            const item = items.find((row) => Number(row.id) === Number(button.dataset.cloneTournament));
+            if (!item) return;
+            try {
+                const created = await tournaments.clone(item.id);
+                setActiveTournament(created);
+                toast(`Создан турнир «${created.name}»`);
+                navigate('rounds');
+            } catch (error) {
+                toast(error.message, true);
+            }
+        });
+    });
 
     if (canEdit) {
         bindSwipe(container);
@@ -141,17 +156,22 @@ function renderTournament(item, canEdit, showArchived) {
         month: '2-digit',
         year: '2-digit',
     }).format(new Date(String(item.created_at).replace(' ', 'T')));
-    const actions = canEdit
+    const canClone = canEdit && item.status === 'completed' && !showArchived;
+    const rightActions = canEdit
         ? (showArchived
             ? `<button type="button" class="swipe-action restore" data-unarchive-tournament="${item.id}">Вернуть</button>
                <button type="button" class="swipe-action danger" data-delete-tournament="${item.id}">Удалить</button>`
             : `<button type="button" class="swipe-action archive" data-archive-tournament="${item.id}">Архив</button>
                <button type="button" class="swipe-action danger" data-delete-tournament="${item.id}">Удалить</button>`)
         : '';
+    const leftActions = canClone
+        ? `<button type="button" class="swipe-action restore" data-clone-tournament="${item.id}">Повторить</button>`
+        : '';
 
     return `
         <div class="tournament-swipe-item" data-swipe-item>
-            <div class="tournament-swipe-actions">${actions}</div>
+            ${leftActions ? `<div class="tournament-swipe-actions swipe-left">${leftActions}</div>` : ''}
+            ${rightActions ? `<div class="tournament-swipe-actions swipe-right">${rightActions}</div>` : ''}
             <article class="card tournament-hub-row status-${displayStatus}" data-swipe-front>
                 <button class="tournament-open" data-open-tournament="${item.id}">
                     <div class="tournament-hub-title">
@@ -167,7 +187,7 @@ function renderTournament(item, canEdit, showArchived) {
                 </button>
                 ${
                     canEdit
-                        ? `<button class="tournament-more" type="button" data-toggle-swipe aria-label="Действия с турниром ${escapeHtml(item.name)}">⋯</button>`
+                        ? `<button class="tournament-more" type="button" data-toggle-swipe="right" aria-label="Действия с турниром ${escapeHtml(item.name)}">⋯</button>`
                         : ''
                 }
             </article>
@@ -177,18 +197,31 @@ function renderTournament(item, canEdit, showArchived) {
 
 function bindSwipe(container) {
     const closeAll = (except = null) => {
-        container.querySelectorAll('[data-swipe-item].open').forEach((item) => {
-            if (item !== except) item.classList.remove('open');
+        container.querySelectorAll('[data-swipe-item].open-left, [data-swipe-item].open-right').forEach((item) => {
+            if (item !== except) {
+                item.classList.remove('open-left', 'open-right');
+            }
         });
+    };
+    const measure = (item) => {
+        const left = item.querySelector('.swipe-left');
+        const right = item.querySelector('.swipe-right');
+        const leftWidth = left?.offsetWidth || 0;
+        const rightWidth = right?.offsetWidth || 148;
+        item.style.setProperty('--swipe-left', `${leftWidth}px`);
+        item.style.setProperty('--swipe-right', `${rightWidth}px`);
+        return { leftWidth, rightWidth };
     };
 
     container.querySelectorAll('[data-toggle-swipe]').forEach((button) => {
         button.addEventListener('click', (event) => {
             event.stopPropagation();
             const item = button.closest('[data-swipe-item]');
-            const willOpen = !item.classList.contains('open');
+            const side = button.dataset.toggleSwipe || 'right';
+            const willOpen = !item.classList.contains(`open-${side}`);
             closeAll(item);
-            item.classList.toggle('open', willOpen);
+            measure(item);
+            item.classList.toggle(`open-${side}`, willOpen);
         });
     });
 
@@ -198,18 +231,22 @@ function bindSwipe(container) {
         let startX = 0;
         let currentX = 0;
         let dragging = false;
+        let leftWidth = 0;
+        let rightWidth = 148;
 
         const onStart = (clientX) => {
             dragging = true;
             startX = clientX;
             currentX = clientX;
+            ({ leftWidth, rightWidth } = measure(item));
             item.classList.add('dragging');
         };
         const onMove = (clientX) => {
             if (!dragging) return;
             currentX = clientX;
-            const delta = Math.min(0, currentX - startX);
-            front.style.transform = `translateX(${Math.max(delta, -148)}px)`;
+            const delta = currentX - startX;
+            const limited = Math.max(-rightWidth, Math.min(leftWidth, delta));
+            front.style.transform = `translateX(${limited}px)`;
         };
         const onEnd = () => {
             if (!dragging) return;
@@ -217,11 +254,14 @@ function bindSwipe(container) {
             item.classList.remove('dragging');
             front.style.transform = '';
             const delta = currentX - startX;
-            if (delta < -56) {
+            if (delta < -56 && rightWidth > 0) {
                 closeAll(item);
-                item.classList.add('open');
-            } else if (delta > 40) {
-                item.classList.remove('open');
+                item.classList.add('open-right');
+            } else if (delta > 56 && leftWidth > 0) {
+                closeAll(item);
+                item.classList.add('open-left');
+            } else if (Math.abs(delta) > 24) {
+                item.classList.remove('open-left', 'open-right');
             }
         };
 

@@ -84,6 +84,7 @@ export const players = {
     remove: (id) => api(`/players/${id}`, { method: 'DELETE' }),
     activate: (id) => api(`/players/${id}/activate`, { method: 'PUT' }),
     stats: (id) => api(`/players/${id}/stats`),
+    ratingTimeline: (companyId) => api(`/companies/${companyId}/rating-timeline`),
 };
 
 export const rounds = {
@@ -136,4 +137,5 @@ export const tournaments = {
     reset: (id) => api(`/tournaments/${id}/reset`, { method: 'DELETE' }),
     archive: (id) => api(`/tournaments/${id}/archive`, { method: 'POST' }),
     unarchive: (id) => api(`/tournaments/${id}/unarchive`, { method: 'POST' }),
+    clone: (id) => api(`/tournaments/${id}/clone`, { method: 'POST' }),
 };

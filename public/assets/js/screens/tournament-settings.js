@@ -33,34 +33,34 @@ export async function renderTournamentSettings(container, navigate) {
     container.innerHTML = `
         <header class="page-header">
             <div>
-                <button class="context-back" id="btn-back-tournaments">← Все турниры</button>
+                <button class="context-back" id="btn-back-rounds">← К раундам</button>
                 <h1>Настройки турнира</h1>
             </div>
             <span class="status-pill">${tournament.status === 'draft' ? 'Не начат' : tournament.status === 'active' ? 'Идёт' : 'Завершён'}</span>
         </header>
         ${locked ? '<div class="notice compact">После начала турнира название, состав и корты защищены. Правила счёта можно менять.</div>' : ''}
-        <div class="card tournament-settings-card">
+        <div class="card tournament-settings-card tournament-settings-main">
             <div class="field">
                 <label for="tournament-settings-name">Название турнира</label>
                 <input id="tournament-settings-name" maxlength="100" value="${escapeHtml(tournament.name)}" ${locked || !canEdit ? 'disabled' : ''}>
             </div>
             <div class="field compact-field">
-                <label for="tournament-settings-courts">Количество кортов</label>
+                <label for="tournament-settings-courts">Корты</label>
                 <input type="number" id="tournament-settings-courts" min="1" max="10"
                     value="${settings.courts_count || 1}" ${locked || !canEdit ? 'disabled' : ''}>
             </div>
         </div>
-        <div class="card tournament-settings-card">
+        <div class="card tournament-settings-rules">
             <div class="field">
                 <label for="tournament-settings-format">Формат американки</label>
                 <select id="tournament-settings-format" ${!canEdit ? 'disabled' : ''}>
-                    <option value="16" ${format === 16 ? 'selected' : ''}>16 очков (+1 доп. мяч)</option>
-                    <option value="24" ${format === 24 ? 'selected' : ''}>24 очка (+1 доп. мяч)</option>
+                    <option value="16" ${format === 16 ? 'selected' : ''}>16 очков</option>
+                    <option value="24" ${format === 24 ? 'selected' : ''}>24 очка</option>
                 </select>
             </div>
             <label class="check-row">
                 <input type="checkbox" id="tournament-settings-extra" ${allowExtra ? 'checked' : ''} ${!canEdit ? 'disabled' : ''}>
-                <span>Разрешить дополнительный мяч (${format + 1})</span>
+                <span id="tournament-settings-extra-label">Дополнительный мяч до ${format + 1}</span>
             </label>
             <label class="check-row">
                 <input type="checkbox" id="tournament-settings-draw" ${allowDraw ? 'checked' : ''} ${!canEdit ? 'disabled' : ''}>
@@ -84,6 +84,11 @@ export async function renderTournamentSettings(container, navigate) {
         }
         ${canEdit ? '<button class="btn btn-primary" id="btn-save-tournament">Сохранить</button>' : ''}
         ${
+            canEdit && tournament.status === 'completed' && !tournament.is_archived
+                ? '<button class="btn btn-secondary" id="btn-clone-tournament">Повторить состав</button>'
+                : ''
+        }
+        ${
             canEdit && tournament.status !== 'completed' && !tournament.is_archived
                 ? '<button class="list-action danger" id="btn-reset-tournament"><span>Сбросить текущий турнир</span><b>Раунды и результаты этого турнира будут удалены</b></button>'
                 : ''
@@ -91,15 +96,15 @@ export async function renderTournamentSettings(container, navigate) {
     `;
 
     const formatSelect = container.querySelector('#tournament-settings-format');
-    const extraLabel = container.querySelector('#tournament-settings-extra')?.closest('.check-row')?.querySelector('span');
+    const extraLabel = container.querySelector('#tournament-settings-extra-label');
     formatSelect?.addEventListener('change', () => {
         const value = Number(formatSelect.value) === 16 ? 16 : 24;
         if (extraLabel) {
-            extraLabel.textContent = `Разрешить дополнительный мяч (${value + 1})`;
+            extraLabel.textContent = `Дополнительный мяч до ${value + 1}`;
         }
     });
 
-    container.querySelector('#btn-back-tournaments').addEventListener('click', () => navigate('tournaments'));
+    container.querySelector('#btn-back-rounds').addEventListener('click', () => navigate('rounds'));
     container.querySelector('#btn-save-tournament')?.addEventListener('click', async () => {
         try {
             const payload = {
@@ -124,7 +129,17 @@ export async function renderTournamentSettings(container, navigate) {
                 setActiveTournament(updated);
             }
             toast('Настройки турнира сохранены');
-            renderTournamentSettings(container, navigate);
+            navigate('rounds');
+        } catch (error) {
+            toast(error.message, true);
+        }
+    });
+    container.querySelector('#btn-clone-tournament')?.addEventListener('click', async () => {
+        try {
+            const created = await tournaments.clone(tournament.id);
+            setActiveTournament(created);
+            toast(`Создан турнир «${created.name}»`);
+            navigate('rounds');
         } catch (error) {
             toast(error.message, true);
         }

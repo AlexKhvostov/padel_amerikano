@@ -84,6 +84,138 @@ final class PlayerService
         ];
     }
 
+    /**
+     * Накопленная доля очков по датам матчей (без архивных турниров).
+     *
+     * @return array{dates: list<string>, series: list<array{id:int,name:string,values:list<?float>}>}
+     */
+    public static function ratingTimeline(int $companyId): array
+    {
+        CompanyService::assertAccess($companyId);
+
+        $playersStmt = db()->prepare(
+            'SELECT id, name, is_active
+             FROM players
+             WHERE company_id = ?
+             ORDER BY is_active DESC, name ASC'
+        );
+        $playersStmt->execute([$companyId]);
+        $players = $playersStmt->fetchAll();
+        if ($players === []) {
+            return ['dates' => [], 'series' => []];
+        }
+
+        $meta = [];
+        foreach ($players as $player) {
+            $id = (int) $player['id'];
+            $meta[$id] = [
+                'id' => $id,
+                'name' => (string) $player['name'],
+                'is_active' => (bool) $player['is_active'],
+                'points_sum' => 0.0,
+                'matches' => 0,
+                'share' => null,
+            ];
+        }
+
+        $stmt = db()->prepare(
+            'SELECT mp.player_id, mp.team, ms.score_team1, ms.score_team2,
+                    DATE(ms.updated_at) AS played_on
+             FROM match_players mp
+             JOIN matches m ON m.id = mp.match_id
+             JOIN rounds r ON r.id = m.round_id
+             JOIN tournaments t ON t.id = r.tournament_id
+                AND t.company_id = ?
+                AND t.archived_at IS NULL
+             JOIN match_scores ms ON ms.match_id = m.id AND ms.is_finished = 1
+             ORDER BY ms.updated_at ASC, m.id ASC, mp.player_id ASC'
+        );
+        $stmt->execute([$companyId]);
+        $rows = $stmt->fetchAll();
+
+        $dates = [];
+        $snapshots = [];
+        $currentDate = null;
+        $flush = static function () use (&$dates, &$snapshots, &$meta, &$currentDate): void {
+            if ($currentDate === null) {
+                return;
+            }
+            $dates[] = $currentDate;
+            $point = [];
+            foreach ($meta as $id => $state) {
+                $point[$id] = $state['share'];
+            }
+            $snapshots[] = $point;
+        };
+
+        foreach ($rows as $row) {
+            $date = (string) $row['played_on'];
+            if ($currentDate !== null && $date !== $currentDate) {
+                $flush();
+            }
+            $currentDate = $date;
+
+            $playerId = (int) $row['player_id'];
+            if (!isset($meta[$playerId])) {
+                continue;
+            }
+            $team = (int) $row['team'];
+            $s1 = (int) $row['score_team1'];
+            $s2 = (int) $row['score_team2'];
+            $total = $s1 + $s2;
+            $my = $team === 1 ? $s1 : $s2;
+            $share = $total > 0 ? ($my * 100.0 / $total) : 0.0;
+            $meta[$playerId]['points_sum'] += $share;
+            $meta[$playerId]['matches']++;
+            $meta[$playerId]['share'] = round(
+                $meta[$playerId]['points_sum'] / $meta[$playerId]['matches'],
+                1
+            );
+        }
+        $flush();
+
+        $series = [];
+        foreach ($meta as $id => $state) {
+            if ($state['matches'] === 0) {
+                continue;
+            }
+            $values = [];
+            foreach ($snapshots as $snapshot) {
+                $values[] = $snapshot[$id] ?? null;
+            }
+            $series[] = [
+                'id' => $id,
+                'name' => $state['name'],
+                'is_active' => $state['is_active'],
+                'matches' => $state['matches'],
+                'values' => $values,
+            ];
+        }
+
+        usort($series, static function (array $a, array $b): int {
+            $aLast = null;
+            $bLast = null;
+            for ($i = count($a['values']) - 1; $i >= 0; $i--) {
+                if ($a['values'][$i] !== null) {
+                    $aLast = $a['values'][$i];
+                    break;
+                }
+            }
+            for ($i = count($b['values']) - 1; $i >= 0; $i--) {
+                if ($b['values'][$i] !== null) {
+                    $bLast = $b['values'][$i];
+                    break;
+                }
+            }
+            return ($bLast ?? -1) <=> ($aLast ?? -1);
+        });
+
+        return [
+            'dates' => $dates,
+            'series' => $series,
+        ];
+    }
+
     public static function create(int $companyId, array $input): array
     {
         CompanyService::assertAccess($companyId, true);

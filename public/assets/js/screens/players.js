@@ -1,6 +1,8 @@
 import { players } from '../api.js';
 import { getSession } from '../storage.js';
 import { toast, telegramLink, escapeHtml, confirmAction, renderError } from '../ui.js';
+import { showRatingInfo } from '../rating-info.js';
+import { showRatingChart } from '../rating-chart.js';
 
 export async function renderPlayers(container) {
     const session = getSession();
@@ -22,6 +24,15 @@ export async function renderPlayers(container) {
                 <h1>Участники</h1>
             </div>
             <div class="player-header-controls">
+                <button class="round-settings-icon round-info-icon" id="btn-rating-info" type="button"
+                    aria-label="Information: how rating works" title="Information"
+                    lang="en">i</button>
+                <button class="round-settings-icon rating-chart-icon" id="btn-rating-chart" type="button"
+                    aria-label="График рейтинга" title="График">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M4 19h16M6 16l3-5 3 3 5-8"/>
+                    </svg>
+                </button>
                 <div class="player-list-filter" role="tablist" aria-label="Фильтр участников">
                     <button class="active" data-player-filter="active" role="tab" aria-selected="true">Активные</button>
                     <button data-player-filter="all" role="tab" aria-selected="false">Все</button>
@@ -84,6 +95,12 @@ export async function renderPlayers(container) {
         renderList(listEl, visiblePlayers, session.id, canEdit);
     };
     renderFilteredList();
+    container.querySelector('#btn-rating-info').addEventListener('click', () => {
+        showRatingInfo();
+    });
+    container.querySelector('#btn-rating-chart').addEventListener('click', () => {
+        showRatingChart(session.id);
+    });
     container.querySelectorAll('[data-player-filter]').forEach((button) => {
         button.addEventListener('click', () => {
             showAll = button.dataset.playerFilter === 'all';

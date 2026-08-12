@@ -323,6 +323,68 @@ final class TournamentService
         return self::get($tournamentId);
     }
 
+    public static function clone(int $tournamentId): array
+    {
+        $source = self::get($tournamentId);
+        $companyId = (int) $source['company_id'];
+        CompanyService::assertAccess($companyId, true);
+        if ($source['status'] !== 'completed') {
+            jsonError('Повторить можно только завершённый турнир');
+        }
+
+        $players = self::players($tournamentId);
+        $playerIds = array_map(static fn(array $row): int => (int) $row['id'], $players['players']);
+        if (count($playerIds) < 4) {
+            jsonError('В исходном турнире меньше 4 участников');
+        }
+
+        $settings = normalizeTournamentSettings($source['settings'] ?? null);
+        $name = self::nextCloneName($companyId, (string) $source['name']);
+
+        return self::create($companyId, [
+            'name' => $name,
+            'player_ids' => $playerIds,
+            'courts_count' => $settings['courts_count'],
+            'format' => $settings['format'],
+            'allow_extra_ball' => $settings['allow_extra_ball'],
+            'allow_draw' => $settings['allow_draw'],
+        ]);
+    }
+
+    private static function nextCloneName(int $companyId, string $sourceName): string
+    {
+        $base = trim((string) preg_replace('/\s*\(\d+\)\s*$/u', '', $sourceName));
+        if ($base === '') {
+            $base = 'Турнир';
+        }
+
+        $stmt = db()->prepare('SELECT name FROM tournaments WHERE company_id = ?');
+        $stmt->execute([$companyId]);
+        $names = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        $used = [];
+        $pattern = '/^' . preg_quote($base, '/') . '\s*\((\d+)\)\s*$/u';
+        foreach ($names as $name) {
+            $name = (string) $name;
+            if ($name === $base) {
+                $used[0] = true;
+            }
+            if (preg_match($pattern, $name, $match)) {
+                $used[(int) $match[1]] = true;
+            }
+        }
+
+        $n = 1;
+        while (isset($used[$n])) {
+            $n++;
+        }
+        $candidate = $base . ' (' . $n . ')';
+        if (mb_strlen($candidate) > 100) {
+            $trimTo = 100 - mb_strlen(' (' . $n . ')');
+            $candidate = mb_substr($base, 0, max(1, $trimTo)) . ' (' . $n . ')';
+        }
+        return $candidate;
+    }
+
     public static function reset(int $tournamentId): void
     {
         $tournament = self::get($tournamentId);

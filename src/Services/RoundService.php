@@ -31,10 +31,17 @@ final class RoundService
         $schedule = $rounds === []
             ? self::previewSchedule($tournamentId)
             : self::scheduleSummary($tournamentId);
+        $tournament = TournamentService::get($tournamentId);
 
         return [
             'rounds' => $rounds,
             'schedule' => $schedule,
+            'tournament' => [
+                'id' => $tournamentId,
+                'status' => (string) ($tournament['status'] ?? 'draft'),
+                'is_archived' => !empty($tournament['is_archived']),
+                'name' => (string) ($tournament['name'] ?? ''),
+            ],
         ];
     }
 

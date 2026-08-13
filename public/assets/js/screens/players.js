@@ -1,6 +1,6 @@
 import { players } from '../api.js';
 import { getSession } from '../storage.js';
-import { toast, telegramLink, escapeHtml, confirmAction, renderError } from '../ui.js';
+import { toast, telegramLink, escapeHtml, confirmAction, renderError, companyEyebrow } from '../ui.js';
 import { showRatingInfo } from '../rating-info.js';
 import { showRatingChart } from '../rating-chart.js';
 
@@ -20,7 +20,7 @@ export async function renderPlayers(container) {
     container.innerHTML = `
         <header class="page-header">
             <div>
-                <span class="eyebrow">Постоянная группа</span>
+                ${companyEyebrow(session)}
                 <h1>Участники</h1>
             </div>
             <div class="player-header-controls">
@@ -202,13 +202,20 @@ function renderList(el, items, companyId, canEdit) {
         .join('');
 
     el.querySelectorAll('[data-stats]').forEach((card) => {
-        const open = () => openPlayerStats(card.dataset.stats);
+        const open = (event) => {
+            if (card.classList.contains('editing') || !card.hasAttribute('data-stats')) return;
+            if (event.target.closest('button, a, input, textarea, select, label, .field, .edit-player-actions, .player-actions')) {
+                return;
+            }
+            openPlayerStats(card.dataset.stats);
+        };
         card.addEventListener('click', open);
         card.addEventListener('keydown', (event) => {
             if (event.target !== card) return;
+            if (card.classList.contains('editing') || !card.hasAttribute('data-stats')) return;
             if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault();
-                open();
+                openPlayerStats(card.dataset.stats);
             }
         });
     });
@@ -361,6 +368,11 @@ function editPlayer(listEl, items, id, companyId) {
     if (!card) return;
 
     card.classList.add('editing');
+    card.classList.remove('player-stats-trigger');
+    card.removeAttribute('data-stats');
+    card.removeAttribute('role');
+    card.removeAttribute('tabindex');
+    card.removeAttribute('aria-label');
     card.innerHTML = `
         <div class="edit-player-head">
             <strong>${escapeHtml(p.name)}</strong>
@@ -376,11 +388,15 @@ function editPlayer(listEl, items, id, companyId) {
         </div>
     `;
 
-    card.querySelector('#cancel-edit').addEventListener('click', () => {
+    card.addEventListener('click', (event) => event.stopPropagation());
+
+    card.querySelector('#cancel-edit').addEventListener('click', (event) => {
+        event.stopPropagation();
         renderList(listEl, items, companyId, true);
     });
 
-    card.querySelector('#save-edit').addEventListener('click', async () => {
+    card.querySelector('#save-edit').addEventListener('click', async (event) => {
+        event.stopPropagation();
         try {
             await players.update(id, {
                 name: card.querySelector('#edit-name').value,

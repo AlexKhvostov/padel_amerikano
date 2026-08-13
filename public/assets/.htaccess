@@ -1,0 +1,6 @@
+# Не кэшировать JS/CSS агрессивно — Safari на iPhone часто держит старые модули.
+<IfModule mod_headers.c>
+    <FilesMatch "\.(js|css)$">
+        Header set Cache-Control "no-cache, must-revalidate"
+    </FilesMatch>
+</IfModule>

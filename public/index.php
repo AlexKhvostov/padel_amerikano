@@ -3,9 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <meta name="theme-color" content="#f5f7f3">
+    <meta name="theme-color" content="#202235">
+    <meta name="format-detection" content="telephone=no, date=no, email=no, address=no">
     <title>Падел Американо</title>
-    <link rel="stylesheet" href="/assets/css/app.css">
+    <link rel="stylesheet" href="/assets/css/app.css?v=20260813f">
     <!-- Yandex.Metrika counter -->
     <script type="text/javascript">
         (function(m,e,t,r,i,k,a){
@@ -26,17 +27,16 @@
             <div class="spinner"></div>
         </div>
         <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+        <header class="app-brand-bar">
+            <button type="button" class="app-brand-link" id="btn-copy-app-link"
+                title="Скопировать ссылку на приложение"
+                aria-label="Скопировать ссылку padel.ballaball.xyz">
+                padel.ballaball.xyz
+            </button>
+        </header>
         <main id="screen"></main>
-        <nav id="tournament-subnav" class="tournament-subnav hidden" aria-label="Навигация турнира">
-            <button data-screen="rounds" class="tournament-subnav-btn">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="17" rx="3"/><path d="M8 2v4M16 2v4M3 10h18M8 14h.01M12 14h.01M16 14h.01"/></svg>
-                <span>Раунды</span>
-            </button>
-            <button data-screen="rating" class="tournament-subnav-btn">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4ZM17 6h3v2a4 4 0 0 1-4 4M7 6H4v2a4 4 0 0 0 4 4"/></svg>
-                <span>Рейтинг</span>
-            </button>
-        </nav>
+        <!-- Совместимость со старым кэшем Safari: раньше тут было нижнее меню турнира -->
+        <nav id="tournament-subnav" class="hidden" hidden aria-hidden="true"></nav>
         <nav id="nav" class="bottom-nav hidden" aria-label="Основная навигация">
             <button data-screen="players" data-context="company" class="nav-btn">
                 <span class="nav-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
@@ -56,6 +56,20 @@
             </button>
         </nav>
     </div>
-    <script type="module" src="/assets/js/app.js"></script>
+    <script type="module" src="/assets/js/app.js?v=20260813f"></script>
+    <script>
+        // Если модули не загрузились (старый кэш Chrome) — один раз жёстко перезагружаем.
+        window.setTimeout(function () {
+            var screen = document.getElementById('screen');
+            if (!screen || screen.childNodes.length > 0) return;
+            try {
+                if (sessionStorage.getItem('padel_boot_retry') === '1') return;
+                sessionStorage.setItem('padel_boot_retry', '1');
+            } catch (e) {}
+            var url = new URL(window.location.href);
+            url.searchParams.set('_r', String(Date.now()));
+            window.location.replace(url.toString());
+        }, 2200);
+    </script>
 </body>
 </html>

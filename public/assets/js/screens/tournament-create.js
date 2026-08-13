@@ -1,6 +1,6 @@
 import { players, tournaments } from '../api.js';
 import { getSession, setActiveTournament } from '../storage.js';
-import { escapeHtml, renderError, toast } from '../ui.js';
+import { escapeHtml, renderError, toast, companyEyebrow } from '../ui.js';
 import { showTournamentRules } from '../tournament-rules.js';
 
 export async function renderTournamentCreate(container, navigate) {
@@ -23,7 +23,7 @@ export async function renderTournamentCreate(container, navigate) {
     container.innerHTML = `
         <header class="page-header">
             <div>
-                <span class="eyebrow">Новая игра</span>
+                ${companyEyebrow(session)}
                 <h1>Создать турнир</h1>
             </div>
             <button class="header-action" id="btn-cancel-tournament">Отмена</button>

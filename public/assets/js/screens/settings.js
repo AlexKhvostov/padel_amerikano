@@ -1,6 +1,6 @@
 import { companies } from '../api.js';
 import { getSession, setSession, clearSession } from '../storage.js';
-import { toast, escapeHtml, confirmAction, renderError } from '../ui.js';
+import { toast, escapeHtml, confirmAction, renderError, companyEyebrow } from '../ui.js';
 import { buildQrUrl, shareViewerInvite } from '../invite.js';
 
 export async function renderSettings(container, navigate) {
@@ -19,10 +19,9 @@ export async function renderSettings(container, navigate) {
     container.innerHTML = `
         <header class="page-header">
             <div>
-                <span class="eyebrow">${escapeHtml(company.name)}</span>
+                ${companyEyebrow(company.name)}
                 <h1>Настройки</h1>
             </div>
-            <span class="status-pill">Компания</span>
         </header>
 
         <div class="card access-card">

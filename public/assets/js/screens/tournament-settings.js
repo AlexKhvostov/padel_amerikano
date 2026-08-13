@@ -1,6 +1,6 @@
 import { players, tournaments } from '../api.js';
 import { getSession, setActiveTournament } from '../storage.js';
-import { confirmAction, escapeHtml, renderError, toast } from '../ui.js';
+import { confirmAction, escapeHtml, renderError, toast, companyEyebrow } from '../ui.js';
 
 export async function renderTournamentSettings(container, navigate) {
     const session = getSession();
@@ -33,6 +33,7 @@ export async function renderTournamentSettings(container, navigate) {
     container.innerHTML = `
         <header class="page-header">
             <div>
+                ${companyEyebrow(session)}
                 <button class="context-back" id="btn-back-rounds">← К раундам</button>
                 <h1>Настройки турнира</h1>
             </div>

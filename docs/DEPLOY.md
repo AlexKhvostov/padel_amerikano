@@ -34,10 +34,18 @@ DB_USER=host1708875_upadel
 DB_PASSWORD=ваш_пароль
 
 APP_SECRET=случайная_строка_не_короче_32_символов
-MAIL_FROM=noreply@padel.ballaball.xyz
+MAIL_FROM=admin@padel.ballaball.xyz
+MAIL_FROM_NAME=Падел Американо
+MAIL_SMTP_HOST=mail.hostland.ru
+MAIL_SMTP_PORT=465
+MAIL_SMTP_ENCRYPTION=ssl
+MAIL_SMTP_USER=admin@padel.ballaball.xyz
+MAIL_SMTP_PASSWORD=пароль_от_почтового_ящика
 ```
 
 Файл `.env` не хранится в git.
+Для писем на Hostland используйте SMTP: создайте ящик в панели и укажите
+`MAIL_SMTP_*`. Один только `MAIL_FROM` через `php mail()` часто не доставляет письма.
 `TRUSTED_PROXIES` обычно оставляется пустым. Если перед Apache используется
 reverse proxy, укажите здесь только его доверенные IP через запятую — это
 необходимо для корректной блокировки попыток входа по IP пользователя.

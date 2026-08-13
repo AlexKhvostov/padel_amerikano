@@ -480,21 +480,56 @@ final class CompanyService
             $genericError();
         }
 
-        $password = SecretCrypto::decrypt($company['password_recoverable'] ?? null);
-        if ($password === null) {
+        $password = null;
+        try {
+            $password = SecretCrypto::decrypt($company['password_recoverable'] ?? null);
+        } catch (Throwable) {
+            $password = null;
+        }
+        if ($password === null || $password === '') {
             $genericError();
         }
 
-        $sent = Mailer::send(
+        $mail = Mailer::send(
             $email,
             'Код доступа — Падел Американо',
             "Компания: {$companyName}\nКод администратора: {$password}\n\nЕсли вы не запрашивали код, проигнорируйте это письмо."
         );
-        if (!$sent) {
-            jsonError('Не удалось отправить письмо. Попробуйте позже.', 500);
+        if (empty($mail['sent'])) {
+            $detail = trim((string) ($mail['error'] ?? ''));
+            $message = 'Не удалось отправить письмо.';
+            if ($detail !== '') {
+                $message .= ' Причина: ' . mb_substr($detail, 0, 180);
+            } else {
+                $message .= ' Проверьте SMTP-настройки в .env (MAIL_SMTP_*).';
+            }
+            jsonError($message, 500);
         }
 
-        return ['ok' => true];
+        return [
+            'ok' => true,
+            'sent' => true,
+            'via' => (string) ($mail['via'] ?? 'mail'),
+            'email' => self::maskEmail($email),
+        ];
+    }
+
+    private static function maskEmail(string $email): string
+    {
+        $parts = explode('@', $email, 2);
+        if (count($parts) !== 2) {
+            return $email;
+        }
+        [$local, $domain] = $parts;
+        $localLen = mb_strlen($local);
+        if ($localLen <= 2) {
+            $maskedLocal = str_repeat('*', $localLen);
+        } else {
+            $maskedLocal = mb_substr($local, 0, 1)
+                . str_repeat('*', max(1, $localLen - 2))
+                . mb_substr($local, -1);
+        }
+        return $maskedLocal . '@' . $domain;
     }
 
     private static function storeRecoverablePassword(int $companyId, string $plainPassword): void

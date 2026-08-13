@@ -16,6 +16,13 @@ export function hideLoader() {
     }
 }
 
+export function resetLoader() {
+    loadingCount = 0;
+    const loader = document.getElementById('loader');
+    loader?.classList.add('hidden');
+    loader?.setAttribute('aria-hidden', 'true');
+}
+
 export function toast(message, isError = false) {
     const el = document.getElementById('toast');
     if (!el) return;
@@ -58,4 +65,14 @@ export function escapeHtml(str) {
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;');
+}
+
+/** Название компании в шапке вместо слова «Компания». */
+export function companyEyebrow(sessionOrName) {
+    const name =
+        typeof sessionOrName === 'string'
+            ? sessionOrName
+            : sessionOrName?.name || 'Компания';
+    const safe = escapeHtml(name);
+    return `<span class="eyebrow company-eyebrow" title="${safe}">${safe}</span>`;
 }

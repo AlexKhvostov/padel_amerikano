@@ -213,16 +213,35 @@ function renderCompanies(container, data, actions, query, scope, favoriteIds, ac
         actions.setPage(pagination.page + 1);
     });
     container.querySelectorAll('[data-watch]').forEach((button) => {
-        button.addEventListener('click', () => {
+        button.addEventListener('click', (event) => {
+            event.stopPropagation();
             actions.watch(button.dataset.companyId, button.dataset.watch);
         });
     });
     container.querySelectorAll('[data-favorite-company]').forEach((button) => {
-        button.addEventListener('click', () => actions.toggleFavorite(button.dataset.favoriteCompany));
+        button.addEventListener('click', (event) => {
+            event.stopPropagation();
+            actions.toggleFavorite(button.dataset.favoriteCompany);
+        });
     });
     container.querySelectorAll('[data-admin-login]').forEach((button) => {
-        button.addEventListener('click', () => {
+        button.addEventListener('click', (event) => {
+            event.stopPropagation();
             showLoginForm(dialog, button.dataset.adminLogin, actions);
+        });
+    });
+    container.querySelectorAll('[data-company-open]').forEach((card) => {
+        const open = () => actions.watch(card.dataset.companyOpen, card.dataset.watchSlug);
+        card.addEventListener('click', (event) => {
+            if (event.target.closest('button, a, input')) return;
+            open();
+        });
+        card.addEventListener('keydown', (event) => {
+            if (event.target !== card) return;
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                open();
+            }
         });
     });
 }
@@ -231,7 +250,12 @@ function renderCompany(company, favoriteIds) {
     const isFavorite = favoriteIds.has(Number(company.id));
     const activityStatus = company.activity_status || 'idle';
     return `
-        <article class="company-public-card status-${activityStatus}">
+        <article class="company-public-card status-${activityStatus}"
+            data-company-open="${company.id}"
+            data-watch-slug="${escapeHtml(company.view_slug)}"
+            role="link"
+            tabindex="0"
+            aria-label="Смотреть компанию ${escapeHtml(company.name)}">
             <div class="company-public-title">
                 <strong>${escapeHtml(company.name)}</strong>
                 <div class="company-public-title-actions">
@@ -252,8 +276,8 @@ function renderCompany(company, favoriteIds) {
             <div class="company-public-footer">
                 <small>${formatUpdated(company.updated_at)}</small>
                 <div class="company-compact-actions">
-                    <button data-admin-login="${escapeHtml(company.name)}">Войти</button>
-                    <button class="primary" data-company-id="${company.id}" data-watch="${company.view_slug}">Смотреть</button>
+                    <button type="button" data-admin-login="${escapeHtml(company.name)}">Войти</button>
+                    <button type="button" class="primary" data-company-id="${company.id}" data-watch="${escapeHtml(company.view_slug)}">Смотреть</button>
                 </div>
             </div>
         </article>
@@ -331,29 +355,77 @@ function showRemindForm(dialog, companyName, actions) {
     dialog.querySelector('#company-auth-title').textContent = 'Напомнить пароль';
     const body = dialog.querySelector('#company-auth-body');
     body.innerHTML = `
-        <form id="company-remind-form">
+        <form id="company-remind-form" novalidate>
             <p class="company-auth-note">Укажите email администратора компании «${escapeHtml(companyName)}».</p>
             <div class="field">
                 <label for="modal-remind-email">Email</label>
-                <input id="modal-remind-email" type="email" placeholder="admin@example.com" autocomplete="email">
+                <input id="modal-remind-email" type="email" placeholder="admin@example.com" autocomplete="email" required>
+                <p class="field-error hidden" id="remind-email-error" role="alert"></p>
             </div>
-            <button class="btn btn-primary" type="submit">Отправить код</button>
+            <button class="btn btn-primary" type="submit" id="btn-send-remind">Отправить код</button>
             <button class="btn btn-ghost" type="button" id="btn-back-to-login">Назад ко входу</button>
         </form>
     `;
-    body.querySelector('#company-remind-form').addEventListener('submit', async (event) => {
+    const form = body.querySelector('#company-remind-form');
+    const emailInput = body.querySelector('#modal-remind-email');
+    const errorEl = body.querySelector('#remind-email-error');
+    const submitBtn = body.querySelector('#btn-send-remind');
+
+    const showFieldError = (message) => {
+        errorEl.textContent = message;
+        errorEl.classList.remove('hidden');
+        emailInput.classList.add('has-error');
+        emailInput.focus();
+    };
+    const clearFieldError = () => {
+        errorEl.textContent = '';
+        errorEl.classList.add('hidden');
+        emailInput.classList.remove('has-error');
+    };
+
+    emailInput.addEventListener('input', clearFieldError);
+
+    form.addEventListener('submit', async (event) => {
         event.preventDefault();
+        clearFieldError();
+        const email = emailInput.value.trim();
+        if (!email) {
+            showFieldError('Укажите email');
+            return;
+        }
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Отправляем…';
         try {
-            await companies.remindPassword(
-                companyName,
-                body.querySelector('#modal-remind-email').value.trim()
-            );
-            toast('Код отправлен на email');
-            showLoginForm(dialog, companyName, actions);
+            const result = await companies.remindPassword(companyName, email);
+            if (!result?.sent) {
+                throw new Error('Сервер не подтвердил отправку письма');
+            }
+            showRemindSent(dialog, companyName, result.email || email, actions);
         } catch (error) {
-            toast(error.message, true);
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Отправить код';
+            showFieldError(error.message || 'Не удалось отправить письмо');
         }
     });
+    body.querySelector('#btn-back-to-login').addEventListener('click', () => {
+        showLoginForm(dialog, companyName, actions);
+    });
+}
+
+function showRemindSent(dialog, companyName, maskedEmail, actions) {
+    dialog.querySelector('#company-auth-title').textContent = 'Письмо отправлено';
+    const body = dialog.querySelector('#company-auth-body');
+    body.innerHTML = `
+        <div class="company-auth-success">
+            <div class="company-auth-success-icon" aria-hidden="true">✓</div>
+            <p class="company-auth-note">
+                Код администратора отправлен на<br>
+                <strong>${escapeHtml(maskedEmail)}</strong>
+            </p>
+            <p class="company-auth-note">Проверьте входящие и папку «Спам».</p>
+            <button class="btn btn-primary" type="button" id="btn-back-to-login">Вернуться ко входу</button>
+        </div>
+    `;
     body.querySelector('#btn-back-to-login').addEventListener('click', () => {
         showLoginForm(dialog, companyName, actions);
     });

@@ -1,7 +1,13 @@
 import { rounds, matches, tournaments } from '../api.js';
 import { getSession, setActiveTournament } from '../storage.js';
 import { toast, escapeHtml, renderError, confirmAction } from '../ui.js';
-import { showTournamentRules } from '../tournament-rules.js';
+import {
+    bindTournamentChrome,
+    scheduleDialogHtml,
+    tournamentHeaderHtml,
+    tournamentStatusHtml,
+    tournamentTabsHtml,
+} from '../tournament-chrome.js';
 
 export async function renderRounds(container, navigate = null) {
     const session = getSession();
@@ -67,54 +73,18 @@ function renderRoundsContent(container, data, session, canEdit, reload, setEditi
         canEdit &&
         tournamentMeta.status === 'completed' &&
         !tournamentMeta.is_archived;
+    const showGrid = !!schedule.total_rounds && !schedule.minimum_players_required;
 
     maybeFlashRotationDone(session.tournamentId, rotationDone && canEdit);
 
     container.innerHTML = `
-        <header class="page-header rounds-page-header">
-            <div>
-                <span class="eyebrow">${escapeHtml(session.tournamentName || 'Турнир')}</span>
-                <h1>Раунды</h1>
-            </div>
-            <div class="round-page-actions">
-                <button class="round-settings-icon round-info-icon" id="btn-tournament-rules" aria-label="Правила турнира" title="Правила турнира">
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/></svg>
-                </button>
-                ${
-                    canEdit
-                        ? `<button class="round-settings-icon" id="btn-tournament-settings" aria-label="Настройки турнира" title="Настройки турнира">
-                               <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.12-1.3l2-1.55-2-3.46-2.44 1A7 7 0 0 0 14.2 5.4L13.85 3h-4l-.35 2.4a7 7 0 0 0-2.24 1.3l-2.44-1-2 3.46 2 1.55A7 7 0 0 0 4.7 12c0 .44.04.87.12 1.29l-2 1.56 2 3.46 2.44-1a7 7 0 0 0 2.24 1.3l.35 2.39h4l.35-2.4a7 7 0 0 0 2.24-1.3l2.44 1 2-3.46-2-1.55c.08-.42.12-.85.12-1.29Z"/></svg>
-                           </button>`
-                        : ''
-                }
-                ${
-                    session.role === 'viewer'
-                        ? '<span class="live-pill"><i></i> Просмотр</span>'
-                        : lastRound
-                          ? `<span class="status-pill">${rotationDone ? 'Готово' : `R${lastRound.round_number}`}</span>`
-                          : ''
-                }
-                ${
-                    schedule.total_rounds && !schedule.minimum_players_required
-                        ? `<button class="schedule-grid-icon" id="btn-show-grid" aria-label="Показать всю сетку" title="Показать всю сетку">
-                               <span class="schedule-grid-visual" aria-hidden="true">
-                                   <svg class="schedule-grid-shape" viewBox="0 0 24 24">
-                                       <rect x="3" y="3" width="7" height="7" rx="1"/>
-                                       <rect x="14" y="3" width="7" height="7" rx="1"/>
-                                       <rect x="3" y="14" width="7" height="7" rx="1"/>
-                                       <rect x="14" y="14" width="7" height="7" rx="1"/>
-                                   </svg>
-                                   <svg class="schedule-ball-shape" viewBox="0 0 24 24">
-                                       <circle cx="12" cy="12" r="9"/>
-                                       <path class="tennis-seam-shadow" d="M6.3 5.2c7.8 4.7 7.8 8.9 2 13.8M17.7 18.8c-7.8-4.7-7.8-8.9-2-13.8"/>
-                                       <path class="tennis-seam" d="M6.3 5.2c7.8 4.7 7.8 8.9 2 13.8M17.7 18.8c-7.8-4.7-7.8-8.9-2-13.8"/>
-                                   </svg>
-                               </span>
-                           </button>`
-                        : ''
-                }
-            </div>
-        </header>
+        ${tournamentHeaderHtml({
+            session,
+            canEdit,
+            statusHtml: tournamentStatusHtml(session, { lastRound, rotationDone }),
+            showGrid,
+        })}
+        ${tournamentTabsHtml('rounds')}
         ${renderScheduleSummary(schedule)}
         <div id="rounds-list" class="rounds-list"></div>
         ${
@@ -128,14 +98,15 @@ function renderRoundsContent(container, data, session, canEdit, reload, setEditi
                     ${roundsList.length ? 'Следующий раунд →' : 'Начать ротацию'}
                   </button>`
         }
-        <dialog class="schedule-dialog" id="schedule-dialog">
-            <div class="schedule-dialog-head">
-                <div><span class="eyebrow">Полная ротация</span><h2>Сетка игр</h2></div>
-                <button class="dialog-close" id="btn-close-grid" aria-label="Закрыть">×</button>
-            </div>
-            <div class="schedule-dialog-body" id="schedule-dialog-body"></div>
-        </dialog>
+        ${scheduleDialogHtml()}
     `;
+
+    bindTournamentChrome(container, {
+        navigate,
+        tournamentId: session.tournamentId,
+        canEdit,
+    });
+    window.dispatchEvent(new CustomEvent('screen-dom-ready'));
 
     const listEl = container.querySelector('#rounds-list');
     if (!roundsList.length) {
@@ -165,12 +136,6 @@ function renderRoundsContent(container, data, session, canEdit, reload, setEditi
             toast(e.message, true);
         }
     });
-    container.querySelector('#btn-tournament-settings')?.addEventListener('click', () => {
-        navigate?.('tournament-settings');
-    });
-    container.querySelector('#btn-tournament-rules').addEventListener('click', () => {
-        showTournamentRules();
-    });
     container.querySelector('#btn-repeat-tournament')?.addEventListener('click', async (event) => {
         const button = event.currentTarget;
         button.disabled = true;
@@ -184,8 +149,6 @@ function renderRoundsContent(container, data, session, canEdit, reload, setEditi
             toast(e.message, true);
         }
     });
-
-    bindScheduleDialog(container, session.tournamentId);
 }
 
 function renderScheduleSummary(schedule) {
@@ -229,13 +192,13 @@ function maybeFlashRotationDone(tournamentId, shouldShow) {
 function renderRound(round, expanded, canEdit) {
     const matches = round.matches || [];
     const matchCount = matches.length;
-    const finishedCount = matches.filter((match) => match.is_finished).length;
+    const finished = matches.filter((match) => match.is_finished).length;
     const courts = [...new Set(matches.map((match) => match.court_number))].sort((a, b) => a - b);
     const courtLabel = courts.length
         ? (courts.length === 1 ? `Корт ${courts[0]}` : `Корты ${courts[0]}–${courts[courts.length - 1]}`)
         : 'Без кортов';
     const statusLabel = round.is_complete ? 'Готово' : 'Активный';
-    const progressLabel = `${finishedCount}/${matchCount} ${pluralMatches(matchCount)}`;
+    const progressLabel = `${finished}/${matchCount} ${pluralMatches(matchCount)}`;
     const bench = round.bench?.length
         ? `<div class="bench-note">Отдых: ${round.bench
               .map((player) => escapeHtml(player.name))
@@ -248,7 +211,7 @@ function renderRound(round, expanded, canEdit) {
                 <span class="round-num" aria-label="Раунд ${round.round_number}">${round.round_number}</span>
                 <span class="round-meta">
                     <span class="round-meta-title">Раунд ${round.round_number}</span>
-                    <span class="round-meta-sub">${statusLabel} · ${progressLabel} · ${courtLabel}</span>
+                    <span class="round-meta-sub" x-apple-data-detectors="false">${statusLabel} · ${progressLabel} · ${courtLabel}</span>
                 </span>
                 <span class="round-collapse" aria-hidden="true">${expanded ? '▴' : '▾'}</span>
             </button>
@@ -312,71 +275,6 @@ function renderTeamNames(players) {
     return players
         .map((player) => `<span title="${escapeHtml(player.name)}">${escapeHtml(player.name)}</span>`)
         .join('');
-}
-
-function bindScheduleDialog(container, companyId) {
-    const dialog = container.querySelector('#schedule-dialog');
-    const body = container.querySelector('#schedule-dialog-body');
-    const closeDialog = () => {
-        if (typeof dialog.close === 'function') dialog.close();
-        else dialog.removeAttribute('open');
-    };
-
-    container.querySelector('#btn-show-grid')?.addEventListener('click', async () => {
-        if (typeof dialog.showModal === 'function') dialog.showModal();
-        else dialog.setAttribute('open', '');
-        body.innerHTML = '<div class="empty">Загружаем сетку…</div>';
-
-        try {
-            const data = await rounds.schedule(companyId);
-            body.innerHTML = data.rounds?.length
-                ? data.rounds.map(renderGridRound).join('')
-                : '<div class="empty">Сетка ещё не рассчитана</div>';
-        } catch (error) {
-            body.innerHTML = `<div class="error-box">${escapeHtml(error.message)}</div>`;
-        }
-    });
-
-    container.querySelector('#btn-close-grid')?.addEventListener('click', closeDialog);
-    dialog?.addEventListener('click', (event) => {
-        if (event.target === dialog) closeDialog();
-    });
-}
-
-function renderGridRound(round) {
-    const statuses = {
-        planned: 'План',
-        active: 'Активный',
-        completed: 'Готово',
-    };
-    const bench = round.bench?.length
-        ? `<div class="grid-bench">Отдых: ${round.bench.map((player) => escapeHtml(player.name)).join(', ')}</div>`
-        : '';
-
-    return `
-        <section class="grid-round">
-            <header><strong>Раунд ${round.round_number}</strong><span class="${round.status}">${statuses[round.status] || ''}</span></header>
-            ${bench}
-            <div class="grid-matches">
-                ${(round.matches || []).map(renderGridMatch).join('')}
-            </div>
-        </section>
-    `;
-}
-
-function renderGridMatch(match) {
-    return `
-        <div class="grid-match">
-            <b>К${match.court_number}</b>
-            <span class="grid-team">${renderGridTeam(match.teams[1])}</span>
-            <i>${match.is_finished ? `${match.score_team1}:${match.score_team2}` : '—'}</i>
-            <span class="grid-team right">${renderGridTeam(match.teams[2])}</span>
-        </div>
-    `;
-}
-
-function renderGridTeam(players) {
-    return (players || []).map((player) => `<span>${escapeHtml(player.name)}</span>`).join('');
 }
 
 function bindRoundEvents(container, canEdit, reload, setEditing) {
@@ -447,13 +345,11 @@ function startScoreEdit(card, setEditing) {
 async function saveScoreWithConfirmation(matchId, score1, score2) {
     try {
         return await matches.saveScore(matchId, score1, score2);
-    } catch (e) {
-        if (e.data?.code !== 'SCORE_TOTAL_CONFIRM_REQUIRED') {
-            throw e;
+    } catch (error) {
+        if (error?.status !== 422 || !error?.data?.confirm_required) {
+            throw error;
         }
-
-        const confirmed = confirmAction(e.message);
-        if (!confirmed) {
+        if (!confirmAction(error.data.warning || error.message)) {
             throw new Error('Сохранение отменено');
         }
         return matches.saveScore(matchId, score1, score2, true);

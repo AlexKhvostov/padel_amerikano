@@ -1,6 +1,14 @@
 import { rating } from '../api.js';
 import { getSession } from '../storage.js';
-import { escapeHtml, renderError } from '../ui.js';
+import { escapeHtml, renderError, companyEyebrow } from '../ui.js';
+import {
+    bindTournamentChrome,
+    ratingProgressHtml,
+    scheduleDialogHtml,
+    tournamentHeaderHtml,
+    tournamentStatusHtml,
+    tournamentTabsHtml,
+} from '../tournament-chrome.js';
 
 export async function renderRating(container, scope = 'tournament', navigate = null) {
     const session = getSession();
@@ -38,18 +46,37 @@ export async function renderRating(container, scope = 'tournament', navigate = n
 function renderRows(container, data, scope, navigate) {
     const rows = data.rating || [];
     const progress = data.progress || { played: 0, total: 0 };
+    const session = getSession();
+    const showTabs = scope === 'tournament';
+    const canEdit = session.role !== 'viewer';
 
-    container.innerHTML = `
+    container.innerHTML = showTabs
+        ? `
+        ${tournamentHeaderHtml({
+            session,
+            canEdit,
+            statusHtml: tournamentStatusHtml(session),
+            showGrid: true,
+        })}
+        ${tournamentTabsHtml('rating')}
+        ${ratingProgressHtml(progress)}
+        <div class="rating-list">
+            ${
+                rows.length
+                    ? rows.map((player) => renderPlayer(player, scope)).join('')
+                    : '<div class="empty">Нет данных — сыграйте первые матчи</div>'
+            }
+        </div>
+        ${scheduleDialogHtml()}
+    `
+        : `
         <header class="page-header rating-header">
             <div>
-                <span class="eyebrow">${scope === 'company' ? 'Все турниры' : 'Текущие результаты'}</span>
-                <h1>${scope === 'company' ? 'Рейтинг компании' : 'Рейтинг турнира'}</h1>
-            </div>
-            <div class="rating-progress">
-                <strong>${progress.played}/${progress.total}</strong>
-                <span>матчей сыграно</span>
+                ${companyEyebrow(session)}
+                <h1>Рейтинг компании</h1>
             </div>
         </header>
+        ${ratingProgressHtml(progress)}
         <div class="rating-list">
             ${
                 rows.length
@@ -58,6 +85,15 @@ function renderRows(container, data, scope, navigate) {
             }
         </div>
     `;
+
+    if (showTabs) {
+        bindTournamentChrome(container, {
+            navigate,
+            tournamentId: session.tournamentId,
+            canEdit,
+        });
+    }
+    window.dispatchEvent(new CustomEvent('screen-dom-ready'));
 }
 
 function renderPlayer(player, scope) {

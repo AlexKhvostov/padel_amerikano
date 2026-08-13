@@ -1,6 +1,6 @@
 import { tournaments } from '../api.js';
 import { getSession, setActiveTournament } from '../storage.js';
-import { confirmAction, escapeHtml, renderError, toast } from '../ui.js';
+import { confirmAction, escapeHtml, renderError, toast, companyEyebrow } from '../ui.js';
 
 export async function renderTournaments(container, navigate) {
     const session = getSession();
@@ -39,7 +39,7 @@ function renderView(container, items, canEdit, navigate, reload, showArchived, s
     container.innerHTML = `
         <header class="page-header">
             <div>
-                <span class="eyebrow">Компания</span>
+                ${companyEyebrow(getSession())}
                 <h1>Турниры</h1>
             </div>
             ${canEdit && !showArchived ? '<button class="header-action" id="btn-new-tournament">＋ Новый турнир</button>' : '<span class="status-pill">Просмотр</span>'}

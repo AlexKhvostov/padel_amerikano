@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#202235">
     <meta name="format-detection" content="telephone=no, date=no, email=no, address=no">
     <title>Падел Американо</title>
-    <link rel="stylesheet" href="/assets/css/app.css?v=20260813f">
+    <link rel="stylesheet" href="/assets/css/app.css?v=20260813g">
     <!-- Yandex.Metrika counter -->
     <script type="text/javascript">
         (function(m,e,t,r,i,k,a){
@@ -56,7 +56,7 @@
             </button>
         </nav>
     </div>
-    <script type="module" src="/assets/js/app.js?v=20260813f"></script>
+    <script type="module" src="/assets/js/app.js?v=20260813g"></script>
     <script>
         // Если модули не загрузились (старый кэш Chrome) — один раз жёстко перезагружаем.
         window.setTimeout(function () {

@@ -32,9 +32,9 @@
     -webkit-tap-highlight-color: transparent;
 }
 
-/* iOS/Chrome: не превращать текст в ссылки на карты/телефон */
+/* iOS/Chrome: не превращать текст в ссылки на карты/телефон
+   (только у ссылок, которые вставляет браузер — не у наших span с x-apple-data-detectors="false") */
 a[x-apple-data-detectors],
-span[x-apple-data-detectors],
 .company-eyebrow a,
 .status-pill a,
 .live-pill a,
